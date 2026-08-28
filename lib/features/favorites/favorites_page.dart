@@ -5,7 +5,6 @@ import '../../shared/widgets/mini_player_bar.dart';
 
 class FavoritesPage extends ConsumerStatefulWidget {
   const FavoritesPage({super.key});
-
   @override
   ConsumerState<FavoritesPage> createState() => _FavoritesPageState();
 }
@@ -14,7 +13,6 @@ class _FavoritesPageState extends ConsumerState<FavoritesPage> {
   @override
   Widget build(BuildContext context) {
     final db = ref.watch(databaseProvider);
-
     return Scaffold(
       appBar: AppBar(title: const Text('我的收藏')),
       body: FutureBuilder(
@@ -22,18 +20,12 @@ class _FavoritesPageState extends ConsumerState<FavoritesPage> {
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
           final list = snapshot.data!;
-          if (list.isEmpty) {
-            return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.favorite_border, size: 64, color: Colors.grey),
-                  SizedBox(height: 16),
-                  Text('还没有收藏的歌曲'),
-                ],
-              ),
-            );
-          }
+          if (list.isEmpty) return const Center(
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(Icons.favorite_border, size: 64, color: Colors.grey),
+              SizedBox(height: 16), Text('还没有收藏的歌曲'),
+            ]),
+          );
           return ListView.builder(
             itemCount: list.length,
             itemBuilder: (context, index) {
@@ -57,20 +49,16 @@ class _FavoritesPageState extends ConsumerState<FavoritesPage> {
                 child: ListTile(
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: song.img != null && song.img!.isNotEmpty
+                    child: song.img != null
                         ? Image.network(song.img!, width: 48, height: 48, fit: BoxFit.cover)
-                        : Container(
-                            width: 48, height: 48,
+                        : Container(width: 48, height: 48,
                             color: Theme.of(context).colorScheme.primaryContainer,
-                            child: const Icon(Icons.music_note),
-                          ),
+                            child: const Icon(Icons.music_note)),
                   ),
                   title: Text(song.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                   subtitle: Text(song.singer, maxLines: 1, overflow: TextOverflow.ellipsis),
                   trailing: const Icon(Icons.favorite, color: Colors.red, size: 20),
-                  onTap: () {
-                    // 播放
-                  },
+                  onTap: () {},
                 ),
               );
             },

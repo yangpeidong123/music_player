@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../shared/widgets/mini_player_bar.dart';
 
@@ -96,21 +95,8 @@ class _LocalMusicPageState extends ConsumerState<LocalMusicPage> {
     setState(() {
       _scanning = true;
       _progress = 0;
-      _progressText = '正在请求权限...';
+      _progressText = '正在扫描...';
     });
-
-    // Android 需要存储权限
-    if (await Permission.storage.request().isDenied) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('需要存储权限才能扫描本地音乐')),
-        );
-      }
-      setState(() => _scanning = false);
-      return;
-    }
-
-    setState(() => _progressText = '正在扫描...');
 
     String? scanPath;
     if (Platform.isAndroid) {

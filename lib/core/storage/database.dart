@@ -1,278 +1,251 @@
-import 'dart:io';
-import 'package:drift/drift.dart';
-import 'package:drift/native.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
-part 'database.g.dart';
+/// 歌曲模型
+class SongEntry {
+  final String id;
+  final String name;
+  final String singer;
+  final String album;
+  final String source;
+  final String musicId;
+  final String? img;
+  final int interval;
+  final String? hash;
 
-/// 歌曲表
-@DataClassName('SongEntry')
-class Songs extends Table {
-  TextColumn get id => text()(); // source_id + music_id
-  TextColumn get name => text()();
-  TextColumn get singer => text()();
-  TextColumn get album => text().withDefault(const Constant(''))();
-  TextColumn get source => text()(); // kw, wy, kg, tx, mg
-  TextColumn get musicId => text()(); // 平台内 ID
-  TextColumn get img => text().nullable()();
-  IntColumn get interval => integer().withDefault(const Constant(0))();
-  TextColumn get hash => text().nullable()();
-  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+  SongEntry({
+    required this.id,
+    required this.name,
+    required this.singer,
+    this.album = '',
+    required this.source,
+    required this.musicId,
+    this.img,
+    this.interval = 0,
+    this.hash,
+  });
 
-  @override
-  Set<Column> get primaryKey => {id};
+  factory SongEntry.fromMap(Map<String, dynamic> m) => SongEntry(
+        id: m['id'] as String,
+        name: m['name'] as String,
+        singer: m['singer'] as String,
+        album: m['album'] as String? ?? '',
+        source: m['source'] as String,
+        musicId: m['musicId'] as String,
+        img: m['img'] as String?,
+        interval: m['interval'] as int? ?? 0,
+        hash: m['hash'] as String?,
+      );
+
+  Map<String, dynamic> toMap() => {
+        'id': id, 'name': name, 'singer': singer, 'album': album,
+        'source': source, 'musicId': musicId, 'img': img,
+        'interval': interval, 'hash': hash,
+      };
 }
 
-/// 歌单表
-@DataClassName('PlaylistEntry')
-class Playlists extends Table {
-  TextColumn get id => text()();
-  TextColumn get name => text()();
-  TextColumn get cover => text().nullable()();
-  TextColumn get description => text().withDefault(const Constant(''))();
-  IntColumn get sort => integer().withDefault(const Constant(0))();
-  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
-  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
+/// 歌单模型
+class PlaylistEntry {
+  final String id;
+  final String name;
+  final String? cover;
+  final String description;
+  PlaylistEntry({required this.id, required this.name, this.cover, this.description = ''});
 
-  @override
-  Set<Column> get primaryKey => {id};
+  factory PlaylistEntry.fromMap(Map<String, dynamic> m) => PlaylistEntry(
+        id: m['id'] as String, name: m['name'] as String,
+        cover: m['cover'] as String?, description: m['description'] as String? ?? '',
+      );
 }
 
-/// 歌单-歌曲关联表
-@DataClassName('PlaylistSongEntry')
-class PlaylistSongs extends Table {
-  TextColumn get playlistId => text().references(Playlists, #id)();
-  TextColumn get songId => text().references(Songs, #id)();
-  IntColumn get sort => integer().withDefault(const Constant(0))();
+/// 音源记录
+class SourceEntry {
+  final String id;
+  final String name;
+  final String? url;
+  final String version;
+  final String author;
+  final bool enabled;
+  SourceEntry({required this.id, required this.name, this.url, required this.version, this.author = '', this.enabled = true});
 
-  @override
-  Set<Column> get primaryKey => {playlistId, songId};
+  factory SourceEntry.fromMap(Map<String, dynamic> m) => SourceEntry(
+        id: m['id'] as String, name: m['name'] as String, url: m['url'] as String?,
+        version: m['version'] as String? ?? '', author: m['author'] as String? ?? '',
+        enabled: (m['enabled'] as int? ?? 1) == 1,
+      );
 }
 
-/// 播放历史表
-@DataClassName('HistoryEntry')
-class PlayHistory extends Table {
-  IntegerColumn get id => integer().autoIncrement()();
-  TextColumn get songId => text().references(Songs, #id)();
-  DateTimeColumn get playedAt => dateTime().withDefault(currentDateAndTime)();
-  IntColumn get playCount => integer().withDefault(const Constant(1))();
+/// SQLite 数据库 — 使用 sqflite（无需代码生成）
+class AppDatabase {
+  Database? _db;
 
-  @override
-  Set<Column> get primaryKey => {id};
-}
-
-/// 收藏表
-@DataClassName('FavoriteEntry')
-class Favorites extends Table {
-  TextColumn get songId => text().references(Songs, #id)();
-  DateTimeColumn get favoritedAt => dateTime().withDefault(currentDateAndTime)();
-
-  @override
-  Set<Column> get primaryKey => {songId};
-}
-
-/// 音源记录表
-@DataClassName('SourceEntry')
-class SourceRecords extends Table {
-  TextColumn get id => text()();
-  TextColumn get name => text()();
-  TextColumn get url => text().nullable()();
-  TextColumn get script => text()();
-  TextColumn get version => text()();
-  TextColumn get author => text().withDefault(const Constant(''))();
-  TextColumn get homepage => text().nullable()();
-  TextColumn get capabilities => text()(); // JSON
-  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
-  DateTimeColumn get importedAt => dateTime().withDefault(currentDateAndTime)();
-
-  @override
-  Set<Column> get primaryKey => {id};
-}
-
-@DriftDatabase(tables: [Songs, Playlists, PlaylistSongs, PlayHistory, Favorites, SourceRecords])
-class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(_openConnection());
-
-  @override
-  int get schemaVersion => 1;
-
-  static LazyDatabase _openConnection() {
-    return LazyDatabase(() async {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File(p.join(dir.path, 'music_player.db'));
-      return NativeDatabase.createInBackground(file);
-    });
+  Future<Database> get db async {
+    _db ??= await _init();
+    return _db!;
   }
 
-  // ============================================================
-  // 歌曲 CRUD
-  // ============================================================
+  Future<Database> _init() async {
+    final path = p.join(await getDatabasesPath(), 'music_player.db');
+    return openDatabase(
+      path,
+      version: 1,
+      onCreate: (db, v) async {
+        await db.execute('''CREATE TABLE songs(
+          id TEXT PRIMARY KEY, name TEXT, singer TEXT, album TEXT,
+          source TEXT, musicId TEXT, img TEXT, interval INTEGER, hash TEXT,
+          createdAt TEXT DEFAULT (datetime('now')))''');
+        await db.execute('''CREATE TABLE playlists(
+          id TEXT PRIMARY KEY, name TEXT, cover TEXT, description TEXT,
+          sort INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT)''');
+        await db.execute('''CREATE TABLE playlist_songs(
+          playlistId TEXT, songId TEXT, sort INTEGER DEFAULT 0,
+          PRIMARY KEY (playlistId, songId))''');
+        await db.execute('''CREATE TABLE play_history(
+          id INTEGER PRIMARY KEY AUTOINCREMENT, songId TEXT, playedAt TEXT,
+          playCount INTEGER DEFAULT 1)''');
+        await db.execute('''CREATE TABLE favorites(
+          songId TEXT PRIMARY KEY, favoritedAt TEXT)''');
+        await db.execute('''CREATE TABLE source_records(
+          id TEXT PRIMARY KEY, name TEXT, url TEXT, script TEXT,
+          version TEXT, author TEXT, homepage TEXT, capabilities TEXT,
+          enabled INTEGER DEFAULT 1, importedAt TEXT)''');
+      },
+    );
+  }
 
-  Future<String> upsertSong({
-    required String musicId,
-    required String source,
-    required String name,
-    required String singer,
-    String album = '',
-    String? img,
-    int interval = 0,
-    String? hash,
-  }) async {
+  // — 歌曲 —
+  Future<String> upsertSong({required String musicId, required String source, required String name, required String singer, String album = '', String? img, int interval = 0, String? hash}) async {
+    final d = await db;
     final id = '${source}_$musicId';
-    await into(songs).insertOnConflictUpdate(SongsCompanion.insert(
-      id: id,
-      name: name,
-      singer: singer,
-      album: Value(album),
-      source: source,
-      musicId: musicId,
-      img: Value(img),
-      interval: Value(interval),
-      hash: Value(hash),
-    ));
+    await d.insert('songs', {'id': id, 'name': name, 'singer': singer, 'album': album, 'source': source, 'musicId': musicId, 'img': img, 'interval': interval, 'hash': hash}, conflictAlgorithm: ConflictAlgorithm.replace);
     return id;
   }
 
-  Future<List<SongEntry>> getAllSongs() => select(songs).get();
-  Future<SongEntry?> getSong(String id) =>
-      (select(songs)..where((t) => t.id.equals(id))).getSingleOrNull();
+  Future<SongEntry?> getSong(String id) async {
+    final d = await db;
+    final list = await d.query('songs', where: 'id = ?', whereArgs: [id], limit: 1);
+    return list.isEmpty ? null : SongEntry.fromMap(list.first);
+  }
 
-  // ============================================================
-  // 歌单 CRUD
-  // ============================================================
-
+  // — 歌单 —
   Future<String> createPlaylist(String name, {String? cover, String description = ''}) async {
+    final d = await db;
     final id = 'pl_${DateTime.now().millisecondsSinceEpoch}';
-    await into(playlists).insert(PlaylistsCompanion.insert(
-      id: id,
-      name: name,
-      cover: Value(cover),
-      description: Value(description),
-    ));
+    await d.insert('playlists', {'id': id, 'name': name, 'cover': cover, 'description': description, 'sort': 0, 'createdAt': DateTime.now().toIso8601String(), 'updatedAt': DateTime.now().toIso8601String()});
     return id;
   }
 
-  Future<List<PlaylistEntry>> getAllPlaylists() =>
-      (select(playlists)..orderBy([(t) => OrderingTerm.asc(t.sort)])).get();
+  Future<List<PlaylistEntry>> getAllPlaylists() async {
+    final d = await db;
+    final list = await d.query('playlists', orderBy: 'sort ASC');
+    return list.map(PlaylistEntry.fromMap).toList();
+  }
 
-  Future<void> renamePlaylist(String id, String name) =>
-      (update(playlists)..where((t) => t.id.equals(id))).write(PlaylistsCompanion(name: name));
+  Future<void> renamePlaylist(String id, String name) async {
+    final d = await db;
+    await d.update('playlists', {'name': name, 'updatedAt': DateTime.now().toIso8601String()}, where: 'id = ?', whereArgs: [id]);
+  }
 
   Future<void> deletePlaylist(String id) async {
-    await (delete(playlistSongs)..where((t) => t.playlistId.equals(id))).go();
-    await (delete(playlists)..where((t) => t.id.equals(id))).go();
+    final d = await db;
+    await d.delete('playlist_songs', where: 'playlistId = ?', whereArgs: [id]);
+    await d.delete('playlists', where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<void> addSongToPlaylist(String playlistId, String songId, {int sort = 0}) =>
-      into(playlistSongs).insertOnConflictUpdate(PlaylistSongsCompanion.insert(
-        playlistId: playlistId,
-        songId: songId,
-        sort: Value(sort),
-      ));
+  Future<void> addSongToPlaylist(String playlistId, String songId, {int sort = 0}) async {
+    final d = await db;
+    await d.insert('playlist_songs', {'playlistId': playlistId, 'songId': songId, 'sort': sort}, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
 
-  Future<void> removeSongFromPlaylist(String playlistId, String songId) =>
-      (delete(playlistSongs)..where((t) =>
-          t.playlistId.equals(playlistId) & t.songId.equals(songId))).go();
+  Future<void> removeSongFromPlaylist(String playlistId, String songId) async {
+    final d = await db;
+    await d.delete('playlist_songs', where: 'playlistId = ? AND songId = ?', whereArgs: [playlistId, songId]);
+  }
 
   Future<List<SongEntry>> getPlaylistSongs(String playlistId) async {
-    final query = select(songs).join(
-      innerJoin(playlistSongs, playlistSongs.songId.equalsExp(songs.id)),
-    )
-      ..where(playlistSongs.playlistId.equals(playlistId))
-      ..orderBy([OrderingTerm.asc(playlistSongs.sort)]);
-    final rows = await query.get();
-    return rows.map((row) => row.readTable(songs)).toList();
+    final d = await db;
+    final list = await d.rawQuery('SELECT s.* FROM songs s INNER JOIN playlist_songs ps ON ps.songId = s.id WHERE ps.playlistId = ? ORDER BY ps.sort', [playlistId]);
+    return list.map(SongEntry.fromMap).toList();
   }
 
-  // ============================================================
-  // 播放历史
-  // ============================================================
-
+  // — 播放历史 —
   Future<void> recordPlay(String songId) async {
-    final existing = await (select(playHistory)
-          ..where((t) => t.songId.equals(songId))
-          ..orderBy([(t) => OrderingTerm.desc(t.playedAt)])
-          ..limit(1))
-        .getSingleOrNull();
-
-    if (existing != null &&
-        DateTime.now().difference(existing.playedAt).inMinutes < 5) {
-      // 5 分钟内重复播放只增加计数
-      await (update(playHistory)..where((t) => t.id.equals(existing.id)))
-          .write(PlayHistoryCompanion(
-        playCount: Value(existing.playCount + 1),
-        playedAt: Value(DateTime.now()),
-      ));
-    } else {
-      await into(playHistory).insert(PlayHistoryCompanion.insert(songId: songId));
+    final d = await db;
+    final existing = await d.query('play_history', where: 'songId = ?', whereArgs: [songId], orderBy: 'playedAt DESC', limit: 1);
+    if (existing.isNotEmpty) {
+      final last = existing.first;
+      final playedAt = DateTime.parse(last['playedAt'] as String);
+      if (DateTime.now().difference(playedAt).inMinutes < 5) {
+        await d.update('play_history', {'playCount': (last['playCount'] as int? ?? 1) + 1, 'playedAt': DateTime.now().toIso8601String()}, where: 'id = ?', whereArgs: [last['id']]);
+        return;
+      }
     }
+    await d.insert('play_history', {'songId': songId, 'playedAt': DateTime.now().toIso8601String()});
   }
 
   Future<List<SongEntry>> getPlayHistory({int limit = 100}) async {
-    final query = select(songs).join(
-      innerJoin(playHistory, playHistory.songId.equalsExp(songs.id)),
-    )
-      ..orderBy([OrderingTerm.desc(playHistory.playedAt)])
-      ..limit(limit);
-    final rows = await query.get();
-    return rows.map((row) => row.readTable(songs)).toList();
+    final d = await db;
+    final list = await d.rawQuery('SELECT s.* FROM songs s INNER JOIN play_history h ON h.songId = s.id ORDER BY h.playedAt DESC LIMIT ?', [limit]);
+    return list.map(SongEntry.fromMap).toList();
   }
 
-  Future<void> clearHistory() => delete(playHistory).go();
+  Future<void> clearHistory() async {
+    final d = await db;
+    await d.delete('play_history');
+  }
 
-  // ============================================================
-  // 收藏
-  // ============================================================
+  // — 收藏 —
+  Future<void> addFavorite(String songId) async {
+    final d = await db;
+    await d.insert('favorites', {'songId': songId, 'favoritedAt': DateTime.now().toIso8601String()}, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
 
-  Future<void> addFavorite(String songId) =>
-      into(favorites).insertOnConflictUpdate(
-        FavoritesCompanion.insert(songId: songId));
+  Future<void> removeFavorite(String songId) async {
+    final d = await db;
+    await d.delete('favorites', where: 'songId = ?', whereArgs: [songId]);
+  }
 
-  Future<void> removeFavorite(String songId) =>
-      (delete(favorites)..where((t) => t.songId.equals(songId))).go();
-
-  Future<bool> isFavorite(String songId) =>
-      (select(favorites)..where((t) => t.songId.equals(songId))).getSingleOrNull()
-          .then((e) => e != null);
+  Future<bool> isFavorite(String songId) async {
+    final d = await db;
+    final list = await d.query('favorites', where: 'songId = ?', whereArgs: [songId], limit: 1);
+    return list.isNotEmpty;
+  }
 
   Future<List<SongEntry>> getFavorites() async {
-    final query = select(songs).join(
-      innerJoin(favorites, favorites.songId.equalsExp(songs.id)),
-    )..orderBy([OrderingTerm.desc(favorites.favoritedAt)]);
-    final rows = await query.get();
-    return rows.map((row) => row.readTable(songs)).toList();
+    final d = await db;
+    final list = await d.rawQuery('SELECT s.* FROM songs s INNER JOIN favorites f ON f.songId = s.id ORDER BY f.favoritedAt DESC');
+    return list.map(SongEntry.fromMap).toList();
   }
 
-  // ============================================================
-  // 音源记录
-  // ============================================================
+  // — 音源记录 —
+  Future<void> saveSource({required String id, required String name, String? url, required String script, required String version, String author = '', String? homepage, required String capabilities}) async {
+    final d = await db;
+    await d.insert('source_records', {'id': id, 'name': name, 'url': url, 'script': script, 'version': version, 'author': author, 'homepage': homepage, 'capabilities': capabilities, 'enabled': 1, 'importedAt': DateTime.now().toIso8601String()}, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
 
-  Future<void> saveSource({
-    required String id,
-    required String name,
-    String? url,
-    required String script,
-    required String version,
-    String author = '',
-    String? homepage,
-    required String capabilities,
-  }) => into(sourceRecords).insertOnConflictUpdate(
-        SourceRecordsCompanion.insert(
-          id: id,
-          name: name,
-          url: Value(url),
-          script: script,
-          version: version,
-          author: Value(author),
-          homepage: Value(homepage),
-          capabilities: capabilities,
-        ));
+  Future<List<SourceEntry>> getAllSources() async {
+    final d = await db;
+    final list = await d.query('source_records', orderBy: 'importedAt DESC');
+    return list.map(SourceEntry.fromMap).toList();
+  }
 
-  Future<List<SourceEntry>> getAllSources() => select(sourceRecords).get();
-  Future<void> deleteSource(String id) =>
-      (delete(sourceRecords)..where((t) => t.id.equals(id))).go();
-  Future<void> setSourceEnabled(String id, bool enabled) =>
-      (update(sourceRecords)..where((t) => t.id.equals(id)))
-          .write(SourceRecordsCompanion(enabled: Value(enabled)));
+  Future<void> deleteSource(String id) async {
+    final d = await db;
+    await d.delete('source_records', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> setSourceEnabled(String id, bool enabled) async {
+    final d = await db;
+    await d.update('source_records', {'enabled': enabled ? 1 : 0}, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<String?> getSourceScript(String id) async {
+    final d = await db;
+    final list = await d.query('source_records', where: 'id = ?', whereArgs: [id], limit: 1);
+    return list.isEmpty ? null : list.first['script'] as String?;
+  }
+
+  Future<void> close() async => await _db?.close();
 }

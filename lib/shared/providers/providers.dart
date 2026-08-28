@@ -3,7 +3,6 @@ import '../../core/engine/source_engine.dart';
 import '../../core/engine/source_manager.dart';
 import '../../core/player/player_service.dart';
 import '../../core/storage/database.dart';
-import '../../core/storage/source_storage.dart';
 
 /// 数据库 Provider
 final databaseProvider = Provider<AppDatabase>((ref) {
@@ -12,18 +11,11 @@ final databaseProvider = Provider<AppDatabase>((ref) {
   return db;
 });
 
-/// 音源管理器 Provider
+/// 音源管理器
 final sourceManagerProvider = Provider<SourceManager>((ref) {
   final manager = SourceManager();
   ref.onDispose(() => manager.dispose());
   return manager;
-});
-
-/// 音源持久化 Provider
-final sourceStorageProvider = Provider<SourceStorage>((ref) {
-  final db = ref.watch(databaseProvider);
-  final manager = ref.watch(sourceManagerProvider);
-  return SourceStorage(db, manager);
 });
 
 /// 当前活跃音源引擎
@@ -31,13 +23,13 @@ final activeEngineProvider = Provider<SourceEngine?>((ref) {
   return ref.watch(sourceManagerProvider).activeEngine;
 });
 
-/// 已加载音源列表（从数据库）
+/// 已导入音源列表
 final sourceListProvider = FutureProvider<List<SourceEntry>>((ref) async {
   final db = ref.watch(databaseProvider);
   return db.getAllSources();
 });
 
-/// 播放器实例 Provider
+/// 播放器实例
 final playerServiceProvider = Provider<PlayerService>((ref) {
   final engine = ref.watch(activeEngineProvider);
   final player = PlayerService(sourceEngine: engine);
@@ -58,8 +50,7 @@ final lyricsStateProvider = StreamProvider<LyricState>((ref) async* {
 });
 
 /// 搜索结果
-final searchResultsProvider =
-    StateNotifierProvider<SearchNotifier, AsyncValue<List<MusicInfo>>>((ref) {
+final searchResultsProvider = StateNotifierProvider<SearchNotifier, AsyncValue<List<MusicInfo>>>((ref) {
   return SearchNotifier(ref);
 });
 
@@ -72,7 +63,7 @@ class SearchNotifier extends StateNotifier<AsyncValue<List<MusicInfo>>> {
     try {
       final engine = _ref.read(activeEngineProvider);
       if (engine == null) {
-        state = AsyncValue.error('未加载音源，请先在设置中导入', StackTrace.current);
+        state = AsyncValue.error('未加载音源', StackTrace.current);
         return;
       }
       final results = await engine.search(source: platform, keyword: keyword);
@@ -90,21 +81,14 @@ final playQueueProvider = StateNotifierProvider<QueueNotifier, List<MusicInfo>>(
 
 class QueueNotifier extends StateNotifier<List<MusicInfo>> {
   QueueNotifier() : super([]);
-
-  void setQueue(List<MusicInfo> queue) => state = List.from(queue);
-  void add(MusicInfo music) => state = [...state, music];
-  void removeAt(int index) {
-    if (index < 0 || index >= state.length) return;
-    state = [...state.sublist(0, index), ...state.sublist(index + 1)];
+  void setQueue(List<MusicInfo> q) => state = List.from(q);
+  void add(MusicInfo m) => state = [...state, m];
+  void removeAt(int i) {
+    if (i < 0 || i >= state.length) return;
+    state = [...state.sublist(0, i), ...state.sublist(i + 1)];
   }
   void clear() => state = [];
 }
-
-/// 默认音质
-final defaultQualityProvider = StateProvider<String>((ref) => '128k');
-
-/// 定时关闭剩余时间
-final sleepTimerProvider = StateProvider<Duration?>((ref) => null);
 
 /// 应用设置
 final appSettingsProvider = StateNotifierProvider<AppSettingsNotifier, AppSettings>((ref) {
@@ -117,22 +101,8 @@ class AppSettings {
   final bool desktopLyrics;
   final int cacheLimitMB;
   final bool autoUpdateSources;
-
-  const AppSettings({
-    this.darkMode = false,
-    this.defaultQuality = '128k',
-    this.desktopLyrics = false,
-    this.cacheLimitMB = 500,
-    this.autoUpdateSources = true,
-  });
-
-  AppSettings copyWith({
-    bool? darkMode,
-    String? defaultQuality,
-    bool? desktopLyrics,
-    int? cacheLimitMB,
-    bool? autoUpdateSources,
-  }) {
+  const AppSettings({this.darkMode = false, this.defaultQuality = '128k', this.desktopLyrics = false, this.cacheLimitMB = 500, this.autoUpdateSources = true});
+  AppSettings copyWith({bool? darkMode, String? defaultQuality, bool? desktopLyrics, int? cacheLimitMB, bool? autoUpdateSources}) {
     return AppSettings(
       darkMode: darkMode ?? this.darkMode,
       defaultQuality: defaultQuality ?? this.defaultQuality,
@@ -145,10 +115,9 @@ class AppSettings {
 
 class AppSettingsNotifier extends StateNotifier<AppSettings> {
   AppSettingsNotifier() : super(const AppSettings());
-
-  void setDarkMode(bool value) => state = state.copyWith(darkMode: value);
-  void setDefaultQuality(String value) => state = state.copyWith(defaultQuality: value);
-  void setDesktopLyrics(bool value) => state = state.copyWith(desktopLyrics: value);
+  void setDarkMode(bool v) => state = state.copyWith(darkMode: v);
+  void setDefaultQuality(String v) => state = state.copyWith(defaultQuality: v);
+  void setDesktopLyrics(bool v) => state = state.copyWith(desktopLyrics: v);
   void setCacheLimit(int mb) => state = state.copyWith(cacheLimitMB: mb);
-  void setAutoUpdateSources(bool value) => state = state.copyWith(autoUpdateSources: value);
+  void setAutoUpdateSources(bool v) => state = state.copyWith(autoUpdateSources: v);
 }
