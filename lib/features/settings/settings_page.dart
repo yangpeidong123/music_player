@@ -126,32 +126,32 @@ class SettingsPage extends ConsumerWidget {
         title: const Text('定时关闭'),
         children: [
           SimpleDialogOption(
-            child: const Text('15 分钟'),
             onPressed: () {
               ref.read(playerServiceProvider).startSleepTimer(const Duration(minutes: 15));
               Navigator.pop(context);
             },
+            child: const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Text('15 分钟')),
           ),
           SimpleDialogOption(
-            child: const Text('30 分钟'),
             onPressed: () {
               ref.read(playerServiceProvider).startSleepTimer(const Duration(minutes: 30));
               Navigator.pop(context);
             },
+            child: const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Text('30 分钟')),
           ),
           SimpleDialogOption(
-            child: const Text('60 分钟'),
             onPressed: () {
               ref.read(playerServiceProvider).startSleepTimer(const Duration(minutes: 60));
               Navigator.pop(context);
             },
+            child: const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Text('60 分钟')),
           ),
           SimpleDialogOption(
-            child: const Text('取消定时'),
             onPressed: () {
               ref.read(playerServiceProvider).cancelSleepTimer();
               Navigator.pop(context);
             },
+            child: const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Text('取消定时')),
           ),
         ],
       ),

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/player/player_service.dart';
+import '../../shared/providers/providers.dart';
 
 class PlayerPage extends ConsumerWidget {
   const PlayerPage({super.key});

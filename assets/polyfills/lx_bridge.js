@@ -1,265 +1,274 @@
 /**
- * LX Bridge Polyfill — 注入 JS 沙箱的全局 lx 对象
- * 
- * 这是对洛雪桌面端 preload.js 的 Dart 侧实现。
- * flutter_js (QuickJS) 执行此脚本后，音源脚本即可通过 globalThis.lx 通信。
- * 
+ * LX Bridge Polyfill — 洛雪音源 lx 全局对象实现
+ *
+ * 适配 flutter_js 0.8.7 的消息传递机制：
+ * - JS 调 Dart: sendMessage('channel', args)
+ * - Dart 调 JS: 通过 evaluate() 执行 JS 代码，JS 端调 DART_TO_QUICKJS_CHANNEL_sendMessage
+ *
  * 协议参考：lx-music-desktop/src/main/modules/userApi/renderer/preload.js
  */
 
-;(function(globalThis) {
+;(function() {
   'use strict';
 
+  var __NATIVE_sendMessage = (typeof sendMessage === 'function')
+    ? sendMessage
+    : (typeof DART_TO_QUICKJS_CHANNEL_sendMessage === 'function')
+      ? function(channel, args) { DART_TO_QUICKJS_CHANNEL_sendMessage(channel, JSON.stringify(args)); }
+      : function() { console.error('No sendMessage available'); };
+
+  function jsonStringifySafe(obj) {
+    try { return JSON.stringify(obj); } catch (e) { return 'null'; }
+  }
+
+  function base64Encode(bytes) {
+    var binary = '';
+    var arr = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
+    for (var i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i]);
+    return btoa(binary);
+  }
+
+  function base64Decode(b64) {
+    var binary = atob(b64);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  // UUID 生成器（异步调用）
+  var __asyncCallId = 0;
+  var __asyncCallbacks = {};
+
+  // ——————————————————————————————————————————————————————————
+  // HTTP 请求桥 (lx_request → Dart dio)
+  // ——————————————————————————————————————————————————————————
+  function lxRequest(url, options, callback) {
+    if (typeof options === 'function') { callback = options; options = {}; }
+    options = options || {};
+    var method = (options.method || 'get').toUpperCase();
+    var headers = options.headers || {};
+    var body = options.body || null;
+    var timeout = options.timeout || 60000;
+
+    var uuid = 'cb_' + (++__asyncCallId) + '_' + Date.now();
+
+    // 注册回调（callback 将在 lx_request_response 收到时调用）
+    __asyncCallbacks[uuid] = function(err, responseJson) {
+      delete __asyncCallbacks[uuid];
+      if (callback) {
+        if (err && err !== 'null') {
+          callback(new Error(err), null, null);
+        } else {
+          try {
+            var res = typeof responseJson === 'string' ? JSON.parse(responseJson) : responseJson;
+            var body = res.body;
+            var bodyParsed = body;
+            try { bodyParsed = JSON.parse(body); } catch (_) {}
+            callback(null, {
+              statusCode: res.statusCode,
+              headers: res.headers,
+              body: bodyParsed,
+            }, body);
+          } catch (e) {
+            callback(new Error('parse response failed: ' + e.message), null, null);
+          }
+        }
+      }
+    };
+
+    __NATIVE_sendMessage('lx_request', [url, jsonStringifySafe({
+      method: method, headers: headers, body: body, timeout: timeout
+    }), uuid]);
+  }
+
+  // ——————————————————————————————————————————————————————————
+  // 加密桥 (lx_crypto → Dart crypto)
+  // ——————————————————————————————————————————————————————————
+  function lxCryptoAsync(action, params) {
+    return new Promise(function(resolve, reject) {
+      var uuid = 'cr_' + (++__asyncCallId) + '_' + Date.now();
+      __asyncCallbacks[uuid] = function(err, result) {
+        delete __asyncCallbacks[uuid];
+        if (err && err !== 'null') reject(new Error(err));
+        else resolve(result);
+      };
+      __NATIVE_sendMessage('lx_crypto', [action, jsonStringifySafe(params), uuid]);
+    });
+  }
+
+  var utils = {
+    crypto: {
+      aesEncrypt: function(buffer, mode, key, iv) {
+        return lxCryptoAsync('aesEncrypt', {
+          buffer: base64Encode(buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : buffer),
+          mode: mode,
+          key: base64Encode(key instanceof ArrayBuffer ? new Uint8Array(key) : key),
+          iv: iv ? base64Encode(iv instanceof ArrayBuffer ? new Uint8Array(iv) : iv) : null,
+        });
+      },
+      aesDecrypt: function(buffer, mode, key, iv) {
+        return lxCryptoAsync('aesDecrypt', {
+          buffer: base64Encode(buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : buffer),
+          mode: mode, key: base64Encode(key), iv: iv ? base64Encode(iv) : null,
+        });
+      },
+      randomBytes: function(size) {
+        return lxCryptoAsync('randomBytes', { size: size });
+      },
+      md5: function(str) {
+        return lxCryptoAsync('md5', { str: str });
+      },
+      sha256: function(str) {
+        return lxCryptoAsync('sha256', { str: str });
+      },
+    },
+    buffer: {
+      from: function(data, encoding) {
+        return new Promise(function(resolve, reject) {
+          var uuid = 'bf_' + (++__asyncCallId) + '_' + Date.now();
+          __asyncCallbacks[uuid] = function(err, result) {
+            delete __asyncCallbacks[uuid];
+            if (err && err !== 'null') reject(new Error(err));
+            else resolve(base64Decode(result));
+          };
+          __NATIVE_sendMessage('lx_buffer', ['from', jsonStringifySafe({ data: data, encoding: encoding || 'utf-8' }), uuid]);
+        });
+      },
+      bufToString: function(buf, format) {
+        return new Promise(function(resolve, reject) {
+          var uuid = 'bs_' + (++__asyncCallId) + '_' + Date.now();
+          __asyncCallbacks[uuid] = function(err, result) {
+            delete __asyncCallbacks[uuid];
+            if (err && err !== 'null') reject(new Error(err));
+            else resolve(result);
+          };
+          __NATIVE_sendMessage('lx_buffer', ['bufToString', jsonStringifySafe({
+            buffer: base64Encode(buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf),
+            format: format || 'utf-8',
+          }), uuid]);
+        });
+      },
+      newBuffer: function(size) {
+        return new Promise(function(resolve, reject) {
+          var uuid = 'bn_' + (++__asyncCallId) + '_' + Date.now();
+          __asyncCallbacks[uuid] = function(err, result) {
+            delete __asyncCallbacks[uuid];
+            if (err && err !== 'null') reject(new Error(err));
+            else resolve(base64Decode(result));
+          };
+          __NATIVE_sendMessage('lx_buffer', ['newBuffer', jsonStringifySafe({ size: size }), uuid]);
+        });
+      },
+    },
+  };
+
+  // ——————————————————————————————————————————————————————————
+  // lx 全局对象
+  // ——————————————————————————————————————————————————————————
   var EVENT_NAMES = {
     request: 'request',
     inited: 'inited',
     updateAlert: 'updateAlert',
   };
 
-  var __requestHandler = null;
   var __inited = false;
   var __updateAlertShown = false;
 
-  var lx = {
+  globalThis.lx = {
     EVENT_NAMES: EVENT_NAMES,
     version: '2.0.0',
     env: 'flutter',
-    currentScriptInfo: null, // 由 Dart 侧设置
+    currentScriptInfo: {
+      name: '', description: '', version: '', author: '', homepage: '',
+    },
+    utils: utils,
+    request: lxRequest,
 
-    // 注册事件处理器
     on: function(eventName, handler) {
       return new Promise(function(resolve, reject) {
-        var validEvents = Object.values(EVENT_NAMES);
-        if (validEvents.indexOf(eventName) === -1) {
-          return reject(new Error('The event is not supported: ' + eventName));
+        if (eventName === EVENT_NAMES.request) {
+          globalThis.__lxRequestHandler = handler;
+          resolve();
+        } else {
+          reject(new Error('Event not supported: ' + eventName));
         }
-        switch (eventName) {
-          case EVENT_NAMES.request:
-            __requestHandler = handler;
-            break;
-          default:
-            return reject(new Error('The event is not supported: ' + eventName));
-        }
-        resolve();
       });
     },
 
-    // 发送事件通知
     send: function(eventName, data) {
       return new Promise(function(resolve, reject) {
-        var validEvents = Object.values(EVENT_NAMES);
-        if (validEvents.indexOf(eventName) === -1) {
-          return reject(new Error('The event is not supported: ' + eventName));
-        }
-        switch (eventName) {
-          case EVENT_NAMES.inited:
-            if (__inited) return reject(new Error('Script is inited'));
-            __inited = true;
-            // 通知 Dart 侧
-            __lx_native_send(eventName, JSON.stringify(data));
-            resolve();
-            break;
-          case EVENT_NAMES.updateAlert:
-            if (__updateAlertShown) return reject(new Error('Update alert already shown'));
-            __updateAlertShown = true;
-            __lx_native_send(eventName, JSON.stringify(data));
-            resolve();
-            break;
-          default:
-            reject(new Error('Unknown event: ' + eventName));
+        if (eventName === EVENT_NAMES.inited) {
+          if (__inited) return reject(new Error('Script already inited'));
+          __inited = true;
+          __NATIVE_sendMessage('lx_send', [eventName, jsonStringifySafe(data)]);
+          resolve();
+        } else if (eventName === EVENT_NAMES.updateAlert) {
+          if (__updateAlertShown) return reject(new Error('Update alert already shown'));
+          __updateAlertShown = true;
+          __NATIVE_sendMessage('lx_send', [eventName, jsonStringifySafe(data)]);
+          resolve();
+        } else {
+          reject(new Error('Event not supported: ' + eventName));
         }
       });
     },
+  };
 
-    // HTTP 请求（回调模式，与洛雪桌面端一致）
-    request: function(url, options, callback) {
-      if (typeof options === 'function') {
-        callback = options;
-        options = {};
+  // 暴露 DART→JS 的消息接收器 (由 flutter_js 注入)
+  // 当 Dart 调 DART_TO_QUICKJS_CHANNEL_sendMessage('lx_request_response', '[uuid, err, data]') 时
+  if (typeof DART_TO_QUICKJS_CHANNEL_sendMessage === 'function') {
+    // We can listen via globalThis; but for our async callbacks, the global __asyncCallbacks map is used
+  }
+
+  // 接收 Dart 调来的消息 (Dart 通过 evaluate 执行 DART_TO_QUICKJS_CHANNEL_sendMessage)
+  // 我们 hook 一下 window/globalThis
+  globalThis.__receiveDartMessage = function(channel, argsJson) {
+    try {
+      var args = JSON.parse(argsJson);
+      if (channel === 'lx_request_response') {
+        var uuid = args[0];
+        var err = args[1];
+        var data = args[2];
+        if (__asyncCallbacks[uuid]) __asyncCallbacks[uuid](err, data);
+      } else if (channel === 'lx_crypto_response' || channel === 'lx_buffer_response' || channel === 'lx_zlib_response') {
+        var uuid = args[0];
+        var err = args[1];
+        var data = args[2];
+        if (__asyncCallbacks[uuid]) __asyncCallbacks[uuid](err, data);
       }
-      options = options || {};
-      var method = options.method || 'GET';
-      var headers = options.headers || {};
-      var body = options.body || null;
-      var timeout = options.timeout || 60000;
-      var form = options.form || null;
+    } catch (e) {
+      console.error('__receiveDartMessage error:', e);
+    }
+  };
 
-      // 调用 Dart 侧的 HTTP 请求
-      var requestId = __lx_native_request(
-        JSON.stringify({
-          url: url,
-          method: method,
-          headers: headers,
-          body: body,
-          form: form,
-          timeout: timeout,
-        })
-      );
-
-      // Dart 侧会通过 __lx_request_callback(requestId, error, response) 回调
-      // 存储 callback 以便回调时找到
-      __lx_callbacks[requestId] = callback;
-      return requestId;
-    },
-
-    // 工具函数
-    utils: {
-      crypto: {
-        // AES 加密/解密
-        aesEncrypt: function(buffer, mode, key, iv) {
-          var result = __lx_native_crypto('aesEncrypt', JSON.stringify({
-            buffer: __base64_encode(buffer),
-            mode: mode,
-            key: __base64_encode(key),
-            iv: iv ? __base64_encode(iv) : null,
-          }));
-          return __base64_decode(result);
-        },
-        aesDecrypt: function(buffer, mode, key, iv) {
-          var result = __lx_native_crypto('aesDecrypt', JSON.stringify({
-            buffer: __base64_encode(buffer),
-            mode: mode,
-            key: __base64_encode(key),
-            iv: iv ? __base64_encode(iv) : null,
-          }));
-          return __base64_decode(result);
-        },
-        // RSA 加密（特殊 padding）
-        rsaEncrypt: function(buffer, key) {
-          var result = __lx_native_crypto('rsaEncrypt', JSON.stringify({
-            buffer: __base64_encode(buffer),
-            key: key,
-          }));
-          return __base64_decode(result);
-        },
-        randomBytes: function(size) {
-          var result = __lx_native_crypto('randomBytes', JSON.stringify({ size: size }));
-          return __base64_decode(result);
-        },
-        md5: function(str) {
-          return __lx_native_crypto('md5', JSON.stringify({ str: str }));
-        },
-        sha256: function(str) {
-          return __lx_native_crypto('sha256', JSON.stringify({ str: str }));
-        },
-      },
-      buffer: {
-        from: function(data, encoding) {
-          if (typeof data === 'string') {
-            return __base64_decode(__lx_native_buffer('from', JSON.stringify({
-              data: data,
-              encoding: encoding || 'utf-8',
-            })));
+  // zlib stub (源码脚本可能调用 inflate/deflate, 暂用原生实现)
+  utils.zlib = {
+    inflate: function(buf) {
+      return new Promise(function(resolve, reject) {
+        try {
+          // 使用浏览器原生 DecompressionStream
+          if (typeof DecompressionStream === 'function') {
+            var stream = new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('deflate')));
+            stream.arrayBuffer().then(function(ab) { resolve(new Uint8Array(ab)); }).catch(reject);
+          } else {
+            reject(new Error('zlib.inflate not supported in this runtime'));
           }
-          return data; // 已经是 buffer-like
-        },
-        bufToString: function(buf, format) {
-          return __lx_native_buffer('bufToString', JSON.stringify({
-            buffer: __base64_encode(buf),
-            format: format || 'utf-8',
-          }));
-        },
-        newBuffer: function(size) {
-          return __base64_decode(__lx_native_buffer('newBuffer', JSON.stringify({ size: size })));
-        },
-      },
-      zlib: {
-        inflate: function(buf) {
-          return new Promise(function(resolve, reject) {
-            try {
-              var result = __lx_native_zlib('inflate', __base64_encode(buf));
-              resolve(__base64_decode(result));
-            } catch (e) {
-              reject(new Error(e.message || 'inflate failed'));
-            }
-          });
-        },
-        deflate: function(data) {
-          return new Promise(function(resolve, reject) {
-            try {
-              var result = __lx_native_zlib('deflate', __base64_encode(data));
-              resolve(__base64_decode(result));
-            } catch (e) {
-              reject(new Error(e.message || 'deflate failed'));
-            }
-          });
-        },
-      },
+        } catch (e) { reject(e); }
+      });
+    },
+    deflate: function(data) {
+      return new Promise(function(resolve, reject) {
+        try {
+          if (typeof CompressionStream === 'function') {
+            var stream = new Response(new Blob([data]).stream().pipeThrough(new CompressionStream('deflate')));
+            stream.arrayBuffer().then(function(ab) { resolve(new Uint8Array(ab)); }).catch(reject);
+          } else {
+            reject(new Error('zlib.deflate not supported in this runtime'));
+          }
+        } catch (e) { reject(e); }
+      });
     },
   };
 
-  // Base64 编解码（Buffer 传递用）
-  function __base64_encode(buf) {
-    if (typeof buf === 'string') {
-      return btoa(buf);
-    }
-    // Uint8Array 或类似
-    var binary = '';
-    var bytes = new Uint8Array(buf);
-    for (var i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-  }
-
-  function __base64_decode(b64) {
-    var binary = atob(b64);
-    var bytes = new Uint8Array(binary.length);
-    for (var i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer;
-  }
-
-  // 回调存储
-  var __lx_callbacks = {};
-
-  // Dart 侧调用：HTTP 请求回调
-  globalThis.__lx_request_callback = function(requestId, error, responseJson) {
-    var cb = __lx_callbacks[requestId];
-    if (!cb) return;
-    delete __lx_callbacks[requestId];
-    if (error) {
-      cb(new Error(error), null, null);
-    } else {
-      var res = JSON.parse(responseJson);
-      var body = res.body;
-      var bodyParsed = body;
-      try { bodyParsed = JSON.parse(body); } catch (_) {}
-      cb(null, {
-        statusCode: res.statusCode,
-        headers: res.headers,
-        body: bodyParsed,
-        rawBody: body,
-      }, body);
-    }
-  };
-
-  // Dart 侧调用：发起 request 处理器调用
-  globalThis.__lx_call_request_handler = function(requestJson) {
-    var req = JSON.parse(requestJson);
-    if (!__requestHandler) {
-      return JSON.stringify({ error: 'No request handler registered' });
-    }
-    // 调用处理器（可能是 async）
-    return Promise.resolve(__requestHandler(req)).then(function(result) {
-      return JSON.stringify({ data: result });
-    }).catch(function(err) {
-      return JSON.stringify({ error: err.message || String(err) });
-    });
-  };
-
-  // 暴露到全局
-  globalThis.lx = lx;
-  globalThis.EVENT_NAMES = EVENT_NAMES;
-
-  // 额外的全局兼容（部分音源脚本需要）
-  globalThis.setTimeout = globalThis.setTimeout || function(fn, ms) { return __lx_native_setTimeout(fn, ms); };
-  globalThis.clearTimeout = globalThis.clearTimeout || function(id) { __lx_native_clearTimeout(id); };
-  globalThis.console = globalThis.console || {
-    log: function() { __lx_native_log('log', JSON.stringify(Array.prototype.slice.call(arguments))); },
-    error: function() { __lx_native_log('error', JSON.stringify(Array.prototype.slice.call(arguments))); },
-    warn: function() { __lx_native_log('warn', JSON.stringify(Array.prototype.slice.call(arguments))); },
-  };
-
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+  console.log('[lx_bridge] loaded');
+})();

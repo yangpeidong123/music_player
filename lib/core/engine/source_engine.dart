@@ -44,8 +44,8 @@ class SourceMeta {
 
 /// 音源支持的源和音质
 class SourceCapabilities {
-  final Map<String, List<String>> sources; // source -> actions
-  final Map<String, List<String>> qualitys; // source -> qualitys
+  final Map<String, List<String>> sources;
+  final Map<String, List<String>> qualitys;
 
   SourceCapabilities({this.sources = const {}, this.qualitys = const {}});
 
@@ -62,15 +62,15 @@ class SourceCapabilities {
   }
 }
 
-/// 音乐信息模型
+/// 音乐信息
 class MusicInfo {
   final String id;
   final String name;
   final String singer;
   final String album;
-  final String source; // kw, wy, mg, tx, kg
+  final String source;
   final String? img;
-  final int? interval; // 秒
+  final int? interval;
   final String? hash;
 
   MusicInfo({
@@ -85,14 +85,8 @@ class MusicInfo {
   });
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'singer': singer,
-        'album': album,
-        'source': source,
-        'img': img ?? '',
-        'interval': interval ?? 0,
-        'hash': hash ?? '',
+        'id': id, 'name': name, 'singer': singer, 'album': album,
+        'source': source, 'img': img ?? '', 'interval': interval ?? 0, 'hash': hash ?? '',
       };
 }
 
@@ -110,10 +104,7 @@ extension RequestActionExt on RequestAction {
       };
 }
 
-/// 洛雪音源沙箱 — 核心引擎
-///
-/// 负责加载洛雪音源 JS 脚本，在 flutter_js (QuickJS) 沙箱中执行，
-/// 通过注入的 lx 全局对象与音源脚本通信。
+/// 洛雪音源沙箱 — flutter_js 实现
 class SourceEngine {
   final JavascriptRuntime _js;
   final Dio _dio;
@@ -121,37 +112,123 @@ class SourceEngine {
   SourceMeta? meta;
   SourceCapabilities? capabilities;
   bool _inited = false;
-  bool _loaded = false;
 
-  // 请求回调
-  final _pendingRequests = <String, Completer<dynamic>>{};
+  // 等待 init 事件
+  final _initCompleter = Completer<Map<String, dynamic>?>();
+
+  // 等待 request 响应 (uuid -> completer)
+  final _requestCompleters = <String, Completer<dynamic>>{};
 
   SourceEngine({JavascriptRuntime? jsRuntime, Dio? dio})
       : _js = jsRuntime ?? getJavascriptRuntime(forceJavascriptCoreOnAndroid: false),
         _dio = dio ?? Dio();
 
-  /// 初始化：注入 polyfill
+  /// 初始化 Dart 侧消息桥
+  void _setupBridge() {
+    // 接收 init 事件
+    _js.onMessage('lx_send', (dynamic args) {
+      try {
+        final eventName = args[0] as String?;
+        final dataJson = args[1] as String?;
+        if (eventName == 'inited' && dataJson != null) {
+          final data = jsonDecode(dataJson) as Map<String, dynamic>;
+          if (!_initCompleter.isCompleted) _initCompleter.complete(data);
+        }
+      } catch (e) {
+        print('[SourceEngine] onMessage error: $e');
+      }
+    });
+
+    // 接收 request 调用 (音源脚本调 lx.request)
+    _js.onMessage('lx_request', (dynamic args) {
+      try {
+        final url = args[0] as String;
+        final optionsJson = args[1] as String? ?? '{}';
+        final uuid = args[2] as String;
+        final options = jsonDecode(optionsJson) as Map<String, dynamic>;
+        _doHttpRequest(url, options, uuid);
+      } catch (e) {
+        print('[SourceEngine] request error: $e');
+      }
+    });
+
+    // 接收 crypto 调用
+    _js.onMessage('lx_crypto', (dynamic args) {
+      try {
+        final action = args[0] as String;
+        final paramsJson = args[1] as String? ?? '{}';
+        final uuid = args[2] as String;
+        try {
+          final result = _handleCrypto(action, paramsJson);
+          _js.sendMessage(channelName: 'lx_crypto_response', args: [uuid, 'null', result]);
+        } catch (e) {
+          _js.sendMessage(channelName: 'lx_crypto_response', args: [uuid, e.toString(), '']);
+        }
+      } catch (e) {
+        print('[SourceEngine] crypto error: $e');
+      }
+    });
+
+    // 接收 buffer 调用
+    _js.onMessage('lx_buffer', (dynamic args) {
+      try {
+        final action = args[0] as String;
+        final paramsJson = args[1] as String? ?? '{}';
+        final uuid = args[2] as String;
+        try {
+          final result = _handleBuffer(action, paramsJson);
+          _js.sendMessage(channelName: 'lx_buffer_response', args: [uuid, 'null', result]);
+        } catch (e) {
+          _js.sendMessage(channelName: 'lx_buffer_response', args: [uuid, e.toString(), '']);
+        }
+      } catch (e) {
+        print('[SourceEngine] buffer error: $e');
+      }
+    });
+  }
+
+  Future<void> _doHttpRequest(String url, Map<String, dynamic> options, String uuid) async {
+    try {
+      final response = await _dio.request(
+        url,
+        data: options['body'],
+        options: Options(
+          method: (options['method'] as String?)?.toUpperCase() ?? 'GET',
+          headers: Map<String, dynamic>.from(options['headers'] as Map? ?? {}),
+          sendTimeout: Duration(milliseconds: options['timeout'] as int? ?? 60000),
+          receiveTimeout: Duration(milliseconds: options['timeout'] as int? ?? 60000),
+          responseType: ResponseType.plain,
+          validateStatus: (_) => true,
+        ),
+      );
+      final body = response.data.toString();
+      final responseJson = jsonEncode({
+        'statusCode': response.statusCode,
+        'headers': response.headers.map,
+        'body': body,
+      });
+      _js.sendMessage(
+        channelName: 'lx_request_response',
+        args: [uuid, 'null', responseJson],
+      );
+    } catch (e) {
+      _js.sendMessage(
+        channelName: 'lx_request_response',
+        args: [uuid, e.toString(), 'null'],
+      );
+    }
+  }
+
+  /// 注入 lx polyfill 到沙箱
   Future<void> _injectPolyfill() async {
     final polyfill = await rootBundle.loadString('assets/polyfills/lx_bridge.js');
     _js.evaluate(polyfill);
-
-    // 注册 Dart 侧 native 函数
-    _js.setProperty('__lx_native_send', allowInterop(_handleSend));
-    _js.setProperty('__lx_native_request', allowInterop(_handleRequest));
-    _js.setProperty('__lx_native_crypto', allowInterop(_handleCrypto));
-    _js.setProperty('__lx_native_buffer', allowInterop(_handleBuffer));
-    _js.setProperty('__lx_native_zlib', allowInterop(_handleZlib));
-    _js.setProperty('__lx_native_log', allowInterop(_handleLog));
-    _js.setProperty('__lx_native_setTimeout', allowInterop(_handleSetTimeout));
-    _js.setProperty('__lx_native_clearTimeout', allowInterop(_handleClearTimeout));
   }
 
   /// 加载音源脚本
   Future<bool> loadFromScript(String script) async {
-    if (!_loaded) {
-      await _injectPolyfill();
-      _loaded = true;
-    }
+    _setupBridge();
+    await _injectPolyfill();
 
     // 解析元数据
     meta = SourceMeta.fromScript(script);
@@ -159,6 +236,7 @@ class SourceEngine {
 
     // 设置 currentScriptInfo
     _js.evaluate('''
+      globalThis.lx = globalThis.lx || {};
       globalThis.lx.currentScriptInfo = {
         name: ${jsonEncode(meta!.name)},
         description: ${jsonEncode(meta!.description)},
@@ -166,46 +244,39 @@ class SourceEngine {
         author: ${jsonEncode(meta!.author)},
         homepage: ${jsonEncode(meta!.homepage)},
       };
+      1
     ''');
 
     // 执行音源脚本
     print('[SourceEngine] 正在执行音源脚本...');
     try {
-      final result = _js.evaluate(script);
-      print('[SourceEngine] 音源脚本执行完成');
+      _js.evaluate(script);
     } catch (err) {
       print('[SourceEngine] 音源脚本执行失败: $err');
       return false;
     }
 
     // 等待 inited 事件（最多 10 秒）
-    final initCompleter = Completer<Map<String, dynamic>?>();
-    _initCompleter = initCompleter;
-
     try {
-      final initResult = await initCompleter.future.timeout(
+      final initResult = await _initCompleter.future.timeout(
         const Duration(seconds: 10),
         onTimeout: () {
           print('[SourceEngine] ⚠️ 音源未在 10 秒内调用 lx.send("inited")');
           return null;
         },
       );
-
       if (initResult != null) {
         capabilities = SourceCapabilities.fromJson(initResult);
         _inited = true;
-        print('[SourceEngine] ✅ 初始化成功，支持的音源: ${capabilities?.sources.keys.toList()}');
+        print('[SourceEngine] ✅ 初始化成功');
       }
     } catch (e) {
       print('[SourceEngine] 初始化异常: $e');
     }
-
     return _inited;
   }
 
-  /// 从 URL 加载音源
   Future<bool> loadFromUrl(String url) async {
-    print('[SourceEngine] 下载音源: $url');
     final response = await _dio.get<String>(url);
     if (response.statusCode != 200) {
       throw Exception('下载失败: HTTP ${response.statusCode}');
@@ -213,65 +284,10 @@ class SourceEngine {
     return loadFromScript(response.data!);
   }
 
-  Completer<Map<String, dynamic>?>? _initCompleter;
-
   // ============================================================
-  // Dart 侧 native 函数（被 JS 沙箱调用）
+  // 加密 / 缓冲区 / zlib polyfill
   // ============================================================
 
-  /// lx.send(eventName, data) → Dart
-  void _handleSend(String eventName, String dataJson) {
-    final data = jsonDecode(dataJson) as Map<String, dynamic>;
-    switch (eventName) {
-      case 'inited':
-        _initCompleter?.complete(data);
-        break;
-      case 'updateAlert':
-        print('[SourceEngine] 音源更新提示: $data');
-        break;
-    }
-  }
-
-  /// lx.request(url, options) → Dart HTTP → JS 回调
-  String _handleRequest(String requestJson) {
-    final req = jsonDecode(requestJson) as Map<String, dynamic>;
-    final requestId = 'req_${DateTime.now().millisecondsSinceEpoch}_${_pendingRequests.length}';
-
-    () async {
-      try {
-        final response = await _dio.request(
-          req['url'] as String,
-          data: req['body'],
-          options: Options(
-            method: (req['method'] as String?)?.toUpperCase() ?? 'GET',
-            headers: Map<String, dynamic>.from(req['headers'] as Map? ?? {}),
-            sendTimeout: Duration(milliseconds: req['timeout'] as int? ?? 60000),
-            receiveTimeout: Duration(milliseconds: req['timeout'] as int? ?? 60000),
-            responseType: ResponseType.plain,
-            validateStatus: (_) => true,
-          ),
-        );
-
-        // 调用 JS 回调
-        final responseJson = jsonEncode({
-          'statusCode': response.statusCode,
-          'headers': response.headers.map,
-          'body': response.data.toString(),
-        });
-        _js.evaluate(
-          "globalThis.__lx_request_callback('$requestId', null, '${_escapeJsString(responseJson)}');",
-        );
-      } catch (e) {
-        _js.evaluate(
-          "globalThis.__lx_request_callback('$requestId', '${_escapeJsString(e.toString())}', null);",
-        );
-      }
-    }();
-
-    return requestId;
-  }
-
-  /// lx.utils.crypto.* → Dart crypto
   String _handleCrypto(String action, String paramsJson) {
     final params = jsonDecode(paramsJson) as Map<String, dynamic>;
     switch (action) {
@@ -280,240 +296,145 @@ class SourceEngine {
         final iv = params['iv'] != null
             ? encrypt.IV(Uint8List.fromList(_b64decode(params['iv'])))
             : encrypt.IV.fromLength(16);
-        final encrypter = encrypt.Encrypter(encrypt.AES(key, mode: encrypt.AESMode.cbc));
-        final encrypted = encrypter.encryptBytes(_b64decode(params['buffer']), iv: iv);
-        return base64Encode(encrypted);
-
+        final e = encrypt.Encrypter(encrypt.AES(key, mode: encrypt.AESMode.cbc));
+        return base64Encode(e.encryptBytes(_b64decode(params['buffer']), iv: iv));
       case 'aesDecrypt':
         final key = encrypt.Key(Uint8List.fromList(_b64decode(params['key'])));
         final iv = params['iv'] != null
             ? encrypt.IV(Uint8List.fromList(_b64decode(params['iv'])))
             : encrypt.IV.fromLength(16);
-        final encrypter = encrypt.Encrypter(encrypt.AES(key, mode: encrypt.AESMode.cbc));
-        final decrypted = encrypter.decryptBytes(
-          encrypt.Encrypted(Uint8List.fromList(_b64decode(params['buffer']))),
-          iv: iv,
-        );
-        return base64Encode(decrypted);
-
-      case 'rsaEncrypt':
-        // 洛雪 RSA 特殊 padding：前面补 0 减到 128 字节
-        final buffer = _b64decode(params['buffer']);
-        final padded = Uint8List(128);
-        final offset = 128 - buffer.length;
-        for (int i = 0; i < buffer.length; i++) {
-          padded[offset + i] = buffer[i];
-        }
-        // TODO: 实际 RSA 加密需要 pointycastle RSA 引擎
-        return base64Encode(padded);
-
+        final e = encrypt.Encrypter(encrypt.AES(key, mode: encrypt.AESMode.cbc));
+        return base64Encode(e.decryptBytes(
+          encrypt.Encrypted(Uint8List.fromList(_b64decode(params['buffer']))), iv: iv));
       case 'randomBytes':
-        final size = params['size'] as int;
-        final bytes = Uint8List(size);
-        // 使用 dart:math.Random 生成
-        for (int i = 0; i < size; i++) {
-          bytes[i] = DateTime.now().microsecondsSinceEpoch & 0xFF;
-        }
-        return base64Encode(bytes);
-
+        return base64Encode(Uint8List(params['size'] as int));
       case 'md5':
         return md5.convert(utf8.encode(params['str'] as String)).toString();
-
       case 'sha256':
         return sha256.convert(utf8.encode(params['str'] as String)).toString();
-
       default:
-        throw Exception('Unknown crypto action: $action');
+        throw Exception('Unknown crypto: $action');
     }
   }
 
-  /// lx.utils.buffer.* → Dart
   String _handleBuffer(String action, String paramsJson) {
     final params = jsonDecode(paramsJson) as Map<String, dynamic>;
     switch (action) {
       case 'from':
-        final encoding = params['encoding'] as String? ?? 'utf-8';
-        final data = params['data'] as String;
-        return base64Encode(utf8.encode(data));
-
+        return base64Encode(utf8.encode(params['data'] as String));
       case 'bufToString':
-        final buffer = _b64decode(params['buffer']);
-        final format = params['format'] as String? ?? 'utf-8';
-        return utf8.decode(buffer);
-
+        return utf8.decode(_b64decode(params['buffer']));
       case 'newBuffer':
-        final size = params['size'] as int;
-        return base64Encode(Uint8List(size));
-
+        return base64Encode(Uint8List(params['size'] as int));
       default:
-        throw Exception('Unknown buffer action: $action');
+        throw Exception('Unknown buffer: $action');
     }
   }
 
-  /// lx.utils.zlib.* → Dart
-  String _handleZlib(String action, String b64data) {
-    final data = _b64decode(b64data);
+  String _handleZlib(String action, String b64) {
+    final data = _b64decode(b64);
     switch (action) {
       case 'inflate':
-        final inflated = ZLibDecoder().decodeBytes(data);
-        return base64Encode(inflated);
-
+        return base64Encode(ZLibDecoder().decodeBytes(data));
       case 'deflate':
-        final deflated = ZLibEncoder().encodeBytes(data);
-        return base64Encode(deflated);
-
+        return base64Encode(ZLibEncoder().encodeBytes(data));
       default:
-        throw Exception('Unknown zlib action: $action');
+        throw Exception('Unknown zlib: $action');
     }
   }
 
-  /// console.log → Dart print
-  void _handleLog(String level, String argsJson) {
-    final args = jsonDecode(argsJson) as List;
-    final msg = args.map((a) => a.toString()).join(' ');
-    switch (level) {
-      case 'error':
-        print('[Source Error] $msg');
-        break;
-      case 'warn':
-        print('[Source Warn] $msg');
-        break;
-      default:
-        print('[Source] $msg');
-    }
-  }
-
-  int _timeoutCounter = 0;
-  final _timeouts = <int, Timer>{};
-
-  int _handleSetTimeout(Function() fn, int ms) {
-    final id = ++_timeoutCounter;
-    _timeouts[id] = Timer(Duration(milliseconds: ms), fn);
-    return id;
-  }
-
-  void _handleClearTimeout(int id) {
-    _timeouts.remove(id)?.cancel();
-  }
+  List<int> _b64decode(String b64) => base64Decode(b64);
 
   // ============================================================
-  // 播放器调用音源（核心 API）
+  // 播放器调用音源
   // ============================================================
 
-  /// 发起 request 请求
+  /// 发起 request（用 evaluate 调用音源脚本注册的 handler）
   Future<dynamic> callRequest({
     required String source,
     required RequestAction action,
     required Map<String, dynamic> info,
   }) async {
-    final request = jsonEncode({
-      'source': source,
-      'action': action.name,
-      'info': info,
+    final requestJson = jsonEncode({'source': source, 'action': action.name, 'info': info});
+    final uuid = 'req_${DateTime.now().millisecondsSinceEpoch}_${_requestCompleters.length}';
+
+    final completer = Completer<dynamic>();
+    _requestCompleters[uuid] = completer;
+
+    // 注册响应接收
+    _js.onMessage('lx_call_response', (dynamic args) {
+      try {
+        final respUuid = args[0] as String;
+        final error = args[1] as String?;
+        final dataJson = args[2] as String?;
+        if (_requestCompleters.containsKey(respUuid)) {
+          final c = _requestCompleters.remove(respUuid)!;
+          if (error != null && error != 'null') {
+            c.completeError(Exception(error));
+          } else {
+            c.complete(dataJson == 'null' ? null : jsonDecode(dataJson!));
+          }
+        }
+      } catch (e) {
+        print('[SourceEngine] call response error: $e');
+      }
     });
 
-    // 调用沙箱中的 request 处理器
-    final resultJson = _js.evaluate(
-      "globalThis.__lx_call_request_handler? await globalThis.__lx_call_request_handler('${_escapeJsString(request)}') : null",
-    );
+    // 调用 JS 端注册的 handler
+    final escapedJson = _escapeJsString(requestJson);
+    _js.evaluate("""
+      (async () => {
+        try {
+          if (typeof globalThis.__lxRequestHandler === 'function') {
+            const result = await globalThis.__lxRequestHandler(JSON.parse('$escapedJson'));
+            DART_TO_QUICKJS_CHANNEL_sendMessage('lx_call_response', JSON.stringify(['$uuid', 'null', JSON.stringify(result)]));
+          } else {
+            DART_TO_QUICKJS_CHANNEL_sendMessage('lx_call_response', JSON.stringify(['$uuid', 'No request handler registered', 'null']));
+          }
+        } catch (e) {
+          DART_TO_QUICKJS_CHANNEL_sendMessage('lx_call_response', JSON.stringify(['$uuid', e.message || String(e), 'null']));
+        }
+      })();
+      1
+    """);
 
-    // flutter_js 不直接支持 async 返回，需要轮询
-    // 实际实现中可以用 onMessage 机制
-    final result = jsonDecode(resultJson.stringResult);
-    if (result['error'] != null) {
-      throw Exception(result['error']);
-    }
-    return result['data'];
+    return completer.future.timeout(const Duration(seconds: 30));
   }
 
-  /// 获取播放链接
-  Future<String?> getMusicUrl({
-    required String source,
-    required MusicInfo music,
-    String quality = '128k',
-  }) async {
-    final result = await callRequest(
-      source: source,
-      action: RequestAction.musicUrl,
-      info: {
-        'type': quality,
-        'musicInfo': music.toJson(),
-      },
-    );
+  Future<String?> getMusicUrl({required String source, required MusicInfo music, String quality = '128k'}) async {
+    final result = await callRequest(source: source, action: RequestAction.musicUrl, info: {'type': quality, 'musicInfo': music.toJson()});
     return result?['url'] as String?;
   }
 
-  /// 获取歌词
-  Future<String?> getMusicLyric({
-    required String source,
-    required MusicInfo music,
-  }) async {
-    final result = await callRequest(
-      source: source,
-      action: RequestAction.musicLyric,
-      info: {'musicInfo': music.toJson()},
-    );
+  Future<String?> getMusicLyric({required String source, required MusicInfo music}) async {
+    final result = await callRequest(source: source, action: RequestAction.musicLyric, info: {'musicInfo': music.toJson()});
     return result?['lyric'] as String?;
   }
 
-  /// 获取封面图
-  Future<String?> getMusicPic({
-    required String source,
-    required MusicInfo music,
-  }) async {
-    final result = await callRequest(
-      source: source,
-      action: RequestAction.musicPic,
-      info: {'musicInfo': music.toJson()},
-    );
+  Future<String?> getMusicPic({required String source, required MusicInfo music}) async {
+    final result = await callRequest(source: source, action: RequestAction.musicPic, info: {'musicInfo': music.toJson()});
     return result?['url'] as String?;
   }
 
-  /// 搜索音乐
-  Future<List<MusicInfo>> search({
-    required String source,
-    required String keyword,
-    int page = 1,
-    int limit = 30,
-  }) async {
-    final result = await callRequest(
-      source: source,
-      action: RequestAction.search,
-      info: {'keyword': keyword, 'page': page, 'limit': limit},
-    );
+  Future<List<MusicInfo>> search({required String source, required String keyword, int page = 1, int limit = 30}) async {
+    final result = await callRequest(source: source, action: RequestAction.search, info: {'keyword': keyword, 'page': page, 'limit': limit});
     final list = result?['list'] as List? ?? [];
     return list.map((item) {
       final m = item as Map<String, dynamic>;
       return MusicInfo(
-        id: m['id']?.toString() ?? '',
-        name: m['name']?.toString() ?? '',
-        singer: m['singer']?.toString() ?? '',
-        album: m['album']?.toString() ?? '',
-        source: source,
-        img: m['img']?.toString(),
-        interval: m['interval'] as int?,
-        hash: m['hash']?.toString(),
+        id: m['id']?.toString() ?? '', name: m['name']?.toString() ?? '',
+        singer: m['singer']?.toString() ?? '', album: m['album']?.toString() ?? '',
+        source: source, img: m['img']?.toString(),
+        interval: m['interval'] as int?, hash: m['hash']?.toString(),
       );
     }).toList();
   }
 
-  // ============================================================
-  // 工具函数
-  // ============================================================
+  String _escapeJsString(String s) => s
+      .replaceAll('\\', '\\\\')
+      .replaceAll("'", "\\'")
+      .replaceAll('\n', '\\n')
+      .replaceAll('\r', '\\r');
 
-  List<int> _b64decode(String b64) {
-    return base64Decode(b64);
-  }
-
-  String _escapeJsString(String s) {
-    return s
-        .replaceAll('\\', '\\\\')
-        .replaceAll("'", "\\'")
-        .replaceAll('\n', '\\n')
-        .replaceAll('\r', '\\r');
-  }
-
-  void dispose() {
-    _js.dispose();
-  }
+  void dispose() => _js.dispose();
 }
