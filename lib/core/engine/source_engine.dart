@@ -304,8 +304,8 @@ class SourceEngine {
             ? encrypt.IV(Uint8List.fromList(_b64decode(params['iv'])))
             : encrypt.IV.fromLength(16);
         final e = encrypt.Encrypter(encrypt.AES(key, mode: encrypt.AESMode.cbc));
-        return base64Encode(e.decryptBytes(
-          encrypt.Encrypted(Uint8List.fromList(_b64decode(params['buffer']))), iv: iv));
+        return base64Encode(e.decrypt(
+          encrypt.Encrypted.fromBase64(base64Encode(_b64decode(params['buffer']))), iv: iv).bytes);
       case 'randomBytes':
         return base64Encode(Uint8List(params['size'] as int));
       case 'md5':
@@ -337,7 +337,8 @@ class SourceEngine {
       case 'inflate':
         return base64Encode(ZLibDecoder().decodeBytes(data));
       case 'deflate':
-        return base64Encode(ZLibEncoder().encodeBytes(data));
+        // archive 5.x: ZLibEncoder().encode(List<int>) returns List<int>
+        return base64Encode(ZLibEncoder().encode(data));
       default:
         throw Exception('Unknown zlib: $action');
     }

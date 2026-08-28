@@ -46,7 +46,7 @@ class SettingsPage extends ConsumerWidget {
           ]),
           _buildSection(context, '外观', [
             SwitchListTile(
-              leading: const Icon(Icons.dark_mode),
+              secondary: const Icon(Icons.dark_mode),
               title: const Text('深色模式'),
               subtitle: const Text('手动切换深色主题'),
               value: settings.darkMode,
@@ -57,14 +57,14 @@ class SettingsPage extends ConsumerWidget {
           ]),
           _buildSection(context, '高级', [
             SwitchListTile(
-              leading: const Icon(Icons.lyrics),
+              secondary: const Icon(Icons.lyrics),
               title: const Text('桌面歌词'),
               subtitle: const Text('在桌面显示悬浮歌词（Windows）'),
               value: settings.desktopLyrics,
               onChanged: (v) => settingsNotifier.setDesktopLyrics(v),
             ),
             SwitchListTile(
-              leading: const Icon(Icons.update),
+              secondary: const Icon(Icons.update),
               title: const Text('自动检查音源更新'),
               subtitle: const Text('启动时自动检查'),
               value: settings.autoUpdateSources,
