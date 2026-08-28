@@ -9,10 +9,13 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ============================================================
+  # Android APK
+  # ============================================================
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -27,6 +30,9 @@ jobs:
         with:
           channel: 'stable'
           cache: true
+
+      - name: Generate Android platform files
+        run: flutter create --platforms=android --org com.example --project-name music_player .
 
       - name: Get dependencies
         run: flutter pub get
@@ -44,10 +50,13 @@ jobs:
           path: build/app/outputs/flutter-apk/*.apk
           retention-days: 30
 
+  # ============================================================
+  # Windows EXE
+  # ============================================================
   build-windows:
     name: Build Windows EXE
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -56,6 +65,9 @@ jobs:
         with:
           channel: 'stable'
           cache: true
+
+      - name: Generate Windows platform files
+        run: flutter create --platforms=windows --org com.example --project-name music_player .
 
       - name: Get dependencies
         run: flutter pub get
@@ -73,6 +85,9 @@ jobs:
           path: windows-release.zip
           retention-days: 30
 
+  # ============================================================
+  # Release（打 tag 时自动发布）
+  # ============================================================
   release:
     name: Create Release
     needs: [build-android, build-windows]
