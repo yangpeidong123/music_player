@@ -9,9 +9,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ============================================================
-  # Android APK
-  # ============================================================
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
@@ -29,34 +26,47 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true
 
-      - name: Generate Android platform files
-        run: flutter create --platforms=android --org com.example --project-name music_player .
+      # 策略：把当前代码（lib/ assets/ pubspec.yaml）复制到一个新建的 Flutter 项目中
+      # 避免 flutter create . 检测不到 Flutter 项目的复杂问题
+      - name: Create temp Flutter project
+        run: |
+          cd $HOME
+          flutter create --platforms=android --org com.example --project-name music_player music_player_temp
+          cd music_player_temp
+          # 用我们的代码替换 lib/ assets/ pubspec.yaml
+          rm -rf lib
+          cp -r $GITHUB_WORKSPACE/lib .
+          cp -r $GITHUB_WORKSPACE/assets .
+          # 合并 pubspec.yaml (用我们的)
+          cp $GITHUB_WORKSPACE/pubspec.yaml pubspec.yaml
+          # 合并 analysis_options.yaml
+          cp $GITHUB_WORKSPACE/analysis_options.yaml . 2>/dev/null || true
+          # 合并 .gitignore
+          cp $GITHUB_WORKSPACE/.gitignore . 2>/dev/null || true
+          flutter pub get
+          # 现在开始 build
+          flutter build apk --release --split-per-abi
+          flutter build apk --release
+        env:
+          GITHUB_WORKSPACE: ${{ github.workspace }}
 
-      - name: Get dependencies
-        run: flutter pub get
-
-      - name: Build APK (split per ABI)
-        run: flutter build apk --release --split-per-abi
-
-      - name: Build universal APK
-        run: flutter build apk --release
+      - name: Copy APKs to workspace
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/build_artifacts
+          cp $HOME/music_player_temp/build/app/outputs/flutter-apk/*.apk $GITHUB_WORKSPACE/build_artifacts/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: build/app/outputs/flutter-apk/*.apk
+          path: build_artifacts/*.apk
           retention-days: 30
 
-  # ============================================================
-  # Windows EXE
-  # ============================================================
   build-windows:
     name: Build Windows EXE
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -64,19 +74,29 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true
 
-      - name: Generate Windows platform files
-        run: flutter create --platforms=windows --org com.example --project-name music_player .
-
-      - name: Get dependencies
-        run: flutter pub get
-
-      - name: Build Windows
-        run: flutter build windows --release
+      - name: Create temp Flutter project
+        shell: bash
+        run: |
+          cd $HOME
+          flutter create --platforms=windows --org com.example --project-name music_player music_player_temp
+          cd music_player_temp
+          rm -rf lib
+          cp -r "$GITHUB_WORKSPACE/lib" .
+          cp -r "$GITHUB_WORKSPACE/assets" .
+          cp "$GITHUB_WORKSPACE/pubspec.yaml" pubspec.yaml
+          cp "$GITHUB_WORKSPACE/analysis_options.yaml" . 2>/dev/null || true
+          cp "$GITHUB_WORKSPACE/.gitignore" . 2>/dev/null || true
+          flutter pub get
+          flutter build windows --release
+        env:
+          GITHUB_WORKSPACE: ${{ github.workspace }}
 
       - name: Archive
-        run: 7z a windows-release.zip build/windows/x64/runner/Release/*
+        shell: bash
+        run: |
+          cd $HOME/music_player_temp/build/windows/x64/runner/Release
+          7z a "$GITHUB_WORKSPACE/windows-release.zip" *
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -85,9 +105,6 @@ jobs:
           path: windows-release.zip
           retention-days: 30
 
-  # ============================================================
-  # Release（打 tag 时自动发布）
-  # ============================================================
   release:
     name: Create Release
     needs: [build-android, build-windows]
