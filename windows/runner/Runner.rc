@@ -1,0 +1,47 @@
+#include <windows.h>
+#include <VersionHelpers.h>
+
+// 应用图标
+IDI_APP_ICON ICON "resources/app_icon.ico"
+
+// 版本信息
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
+ FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+ FILEFLAGS 0x0L
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "08040360"  // 简体中文
+    BEGIN
+      VALUE "CompanyName", "Music Player"
+      VALUE "FileDescription", "音乐播放器"
+      VALUE "FileVersion", "1.0.0.0"
+      VALUE "InternalName", "music_player"
+      VALUE "LegalCopyright", "MIT License"
+      VALUE "OriginalFilename", "music_player.exe"
+      VALUE "ProductName", "音乐播放器"
+      VALUE "ProductVersion", "1.0.0.0"
+    END
+    BLOCK "040904B0"  // English
+    BEGIN
+      VALUE "CompanyName", "Music Player"
+      VALUE "FileDescription", "Music Player"
+      VALUE "FileVersion", "1.0.0.0"
+      VALUE "InternalName", "music_player"
+      VALUE "LegalCopyright", "MIT License"
+      VALUE "OriginalFilename", "music_player.exe"
+      VALUE "ProductName", "Music Player"
+      VALUE "ProductVersion", "1.0.0.0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0804, 0x0360  // Chinese Simplified
+    VALUE "Translation", 0x0409, 0x04B0  // English
+  END
+END
