@@ -297,15 +297,20 @@ class SourceEngine {
             ? encrypt.IV(Uint8List.fromList(_b64decode(params['iv'])))
             : encrypt.IV.fromLength(16);
         final e = encrypt.Encrypter(encrypt.AES(key, mode: encrypt.AESMode.cbc));
-        return base64Encode(e.encryptBytes(_b64decode(params['buffer']), iv: iv));
+        // encrypt 5.x: encrypt(String plaintext, iv:) → Encrypted
+        final plainBytes = _b64decode(params['buffer']);
+        final encrypted = e.encrypt(utf8.decode(plainBytes), iv: iv);
+        return encrypted.base64;
       case 'aesDecrypt':
         final key = encrypt.Key(Uint8List.fromList(_b64decode(params['key'])));
         final iv = params['iv'] != null
             ? encrypt.IV(Uint8List.fromList(_b64decode(params['iv'])))
             : encrypt.IV.fromLength(16);
         final e = encrypt.Encrypter(encrypt.AES(key, mode: encrypt.AESMode.cbc));
-        return base64Encode(e.decrypt(
-          encrypt.Encrypted.fromBase64(base64Encode(_b64decode(params['buffer']))), iv: iv).bytes);
+        // encrypt 5.x: decrypt64(String base64, iv:) → String
+        final b64 = base64Encode(_b64decode(params['buffer']));
+        final decrypted = e.decrypt64(b64, iv: iv);
+        return base64Encode(utf8.encode(decrypted));
       case 'randomBytes':
         return base64Encode(Uint8List(params['size'] as int));
       case 'md5':
