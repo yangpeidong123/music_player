@@ -42,35 +42,9 @@ jobs:
           cp "$GITHUB_WORKSPACE/pubspec.yaml" pubspec.yaml
           cp "$GITHUB_WORKSPACE/analysis_options.yaml" . 2>/dev/null || true
           cp "$GITHUB_WORKSPACE/.gitignore" . 2>/dev/null || true
-          # 修复 flutter_js JVM target 不一致问题
-          # 在 android/app/build.gradle 中添加 kotlinOptions
-          echo "
-          android {
-              kotlinOptions {
-                  jvmTarget = '17'
-              }
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-          }" >> android/app/build.gradle
-          # 全局修复: 在 android/build.gradle 中强制所有模块用同一 JVM target
-          echo "
-          subprojects {
-              afterEvaluate { project ->
-                  if (project.hasProperty('android')) {
-                      project.android {
-                          compileOptions {
-                              sourceCompatibility JavaVersion.VERSION_17
-                              targetCompatibility JavaVersion.VERSION_17
-                          }
-                      }
-                      project.android.kotlinOptions {
-                          jvmTarget = '17'
-                      }
-                  }
-              }
-          }" >> android/build.gradle
+          # 修复 flutter_js JVM target 不一致: 通过 gradle.properties 全局设置
+          echo "org.gradle.jvmargs=-Xmx2048M" >> android/gradle.properties
+          echo "kotlin.jvm.target.validation.mode=warning" >> android/gradle.properties
           flutter pub get
           flutter build apk --release --split-per-abi
           flutter build apk --release
