@@ -72,6 +72,7 @@ jobs:
           channel: 'stable'
 
       - name: Create temp Flutter project
+        shell: bash
         run: |
           cd $HOME
           flutter create --platforms=windows --org com.example --project-name music_player music_player_temp
@@ -105,6 +106,7 @@ jobs:
           }
 
       - name: Build Windows
+        shell: bash
         run: |
           cd $HOME/music_player_temp
           flutter build windows --release
