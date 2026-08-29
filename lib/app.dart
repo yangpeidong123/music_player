@@ -27,6 +27,24 @@ final goRouter = GoRouter(
     GoRoute(path: '/favorites', builder: (context, state) => const FavoritesPage()),
     GoRoute(path: '/local', builder: (context, state) => const LocalMusicPage()),
   ],
+  errorBuilder: (context, state) => Scaffold(
+    appBar: AppBar(title: const Text('页面不存在')),
+    body: Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, size: 64),
+          const SizedBox(height: 16),
+          Text('找不到页面: ${state.uri}'),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: () => GoRouter.of(context).go('/'),
+            child: const Text('返回首页'),
+          ),
+        ],
+      ),
+    ),
+  ),
 );
 
 class MusicPlayerApp extends ConsumerWidget {

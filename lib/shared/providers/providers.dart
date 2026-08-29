@@ -1,9 +1,10 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../core/engine/source_engine.dart';
-import '../../core/engine/source_manager.dart';
-import '../../core/player/player_service.dart';
-import '../../core/player/lyrics_engine.dart';
-import '../../core/storage/database.dart';
+import 'core/engine/source_engine.dart';
+import 'core/engine/source_manager.dart';
+import 'core/player/player_service.dart';
+import 'core/player/lyrics_engine.dart';
+import 'core/storage/database.dart';
 
 /// 数据库 Provider
 final databaseProvider = Provider<AppDatabase>((ref) {
@@ -51,7 +52,8 @@ final lyricsStateProvider = StreamProvider<LyricState>((ref) async* {
 });
 
 /// 搜索结果
-final searchResultsProvider = StateNotifierProvider<SearchNotifier, AsyncValue<List<MusicInfo>>>((ref) {
+final searchResultsProvider =
+    StateNotifierProvider<SearchNotifier, AsyncValue<List<MusicInfo>>>((ref) {
   return SearchNotifier(ref);
 });
 
@@ -60,11 +62,15 @@ class SearchNotifier extends StateNotifier<AsyncValue<List<MusicInfo>>> {
   SearchNotifier(this._ref) : super(const AsyncValue.data([]));
 
   Future<void> search(String keyword, {String platform = 'kw'}) async {
+    if (keyword.trim().isEmpty) {
+      state = const AsyncValue.data([]);
+      return;
+    }
     state = const AsyncValue.loading();
     try {
       final engine = _ref.read(activeEngineProvider);
       if (engine == null) {
-        state = AsyncValue.error('未加载音源', StackTrace.current);
+        state = AsyncValue.error('未加载音源，请先在设置中导入', StackTrace.current);
         return;
       }
       final results = await engine.search(source: platform, keyword: keyword);
@@ -72,6 +78,10 @@ class SearchNotifier extends StateNotifier<AsyncValue<List<MusicInfo>>> {
     } catch (e, st) {
       state = AsyncValue.error(e, st);
     }
+  }
+
+  void clear() {
+    state = const AsyncValue.data([]);
   }
 }
 
@@ -82,8 +92,17 @@ final playQueueProvider = StateNotifierProvider<QueueNotifier, List<MusicInfo>>(
 
 class QueueNotifier extends StateNotifier<List<MusicInfo>> {
   QueueNotifier() : super([]);
-  void setQueue(List<MusicInfo> q) => state = List.from(q);
+
+  void setQueue(List<MusicInfo> q, {int startIndex = 0}) {
+    if (q.isEmpty) {
+      state = [];
+      return;
+    }
+    state = List.from(q);
+  }
+
   void add(MusicInfo m) => state = [...state, m];
+  void insertNext(MusicInfo m) => state = [...state, m];
   void removeAt(int i) {
     if (i < 0 || i >= state.length) return;
     state = [...state.sublist(0, i), ...state.sublist(i + 1)];
@@ -92,7 +111,8 @@ class QueueNotifier extends StateNotifier<List<MusicInfo>> {
 }
 
 /// 应用设置
-final appSettingsProvider = StateNotifierProvider<AppSettingsNotifier, AppSettings>((ref) {
+final appSettingsProvider =
+    StateNotifierProvider<AppSettingsNotifier, AppSettings>((ref) {
   return AppSettingsNotifier();
 });
 
@@ -102,8 +122,22 @@ class AppSettings {
   final bool desktopLyrics;
   final int cacheLimitMB;
   final bool autoUpdateSources;
-  const AppSettings({this.darkMode = false, this.defaultQuality = '128k', this.desktopLyrics = false, this.cacheLimitMB = 500, this.autoUpdateSources = true});
-  AppSettings copyWith({bool? darkMode, String? defaultQuality, bool? desktopLyrics, int? cacheLimitMB, bool? autoUpdateSources}) {
+
+  const AppSettings({
+    this.darkMode = false,
+    this.defaultQuality = '128k',
+    this.desktopLyrics = false,
+    this.cacheLimitMB = 500,
+    this.autoUpdateSources = true,
+  });
+
+  AppSettings copyWith({
+    bool? darkMode,
+    String? defaultQuality,
+    bool? desktopLyrics,
+    int? cacheLimitMB,
+    bool? autoUpdateSources,
+  }) {
     return AppSettings(
       darkMode: darkMode ?? this.darkMode,
       defaultQuality: defaultQuality ?? this.defaultQuality,
@@ -116,6 +150,7 @@ class AppSettings {
 
 class AppSettingsNotifier extends StateNotifier<AppSettings> {
   AppSettingsNotifier() : super(const AppSettings());
+
   void setDarkMode(bool v) => state = state.copyWith(darkMode: v);
   void setDefaultQuality(String v) => state = state.copyWith(defaultQuality: v);
   void setDesktopLyrics(bool v) => state = state.copyWith(desktopLyrics: v);

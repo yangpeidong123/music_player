@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../shared/providers/providers.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
+import '../providers/providers.dart';
 
 /// 全局底部迷你播放条
 class MiniPlayerBar extends ConsumerWidget {
@@ -13,7 +14,8 @@ class MiniPlayerBar extends ConsumerWidget {
 
     return playerState.when(
       data: (state) {
-        if (state.currentMusic == null) return const SizedBox.shrink();
+        final music = state.currentMusic;
+        if (music == null) return const SizedBox.shrink();
 
         return Material(
           elevation: 8,
@@ -22,7 +24,10 @@ class MiniPlayerBar extends ConsumerWidget {
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
               border: Border(
-                top: BorderSide(color: Theme.of(context).dividerColor, width: 0.5),
+                top: BorderSide(
+                  color: Theme.of(context).dividerColor,
+                  width: 0.5,
+                ),
               ),
             ),
             child: Row(
@@ -30,58 +35,64 @@ class MiniPlayerBar extends ConsumerWidget {
                 // 封面
                 Padding(
                   padding: const EdgeInsets.all(8),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: state.currentMusic!.img != null && state.currentMusic!.img!.isNotEmpty
-                        ? Image.network(state.currentMusic!.img!, width: 48, height: 48, fit: BoxFit.cover)
-                        : Container(
-                            width: 48, height: 48,
-                            color: Theme.of(context).colorScheme.primaryContainer,
-                            child: const Icon(Icons.music_note, size: 24),
-                          ),
-                  ),
-                ),
-                // 歌曲信息
-                Expanded(
                   child: GestureDetector(
                     onTap: () => context.push('/player'),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          state.currentMusic!.name,
-                          maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        Text(
-                          state.currentMusic!.singer,
-                          maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: music.img != null && music.img!.isNotEmpty
+                          ? CachedNetworkImage(
+                              imageUrl: music.img!,
+                              width: 48, height: 48, fit: BoxFit.cover,
+                              placeholder: (_, __) => _albumPlaceholder(context),
+                              errorWidget: (_, __, ___) => _albumPlaceholder(context),
+                            )
+                          : _albumPlaceholder(context),
                     ),
                   ),
                 ),
-                // 进度
-                SizedBox(
-                  width: 40,
-                  child: CircularProgressIndicator(
-                    value: state.duration.inSeconds > 0
-                        ? state.position.inSeconds / state.duration.inSeconds
-                        : 0,
-                    strokeWidth: 2,
+                // 歌曲信息 + 进度
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        music.name,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        music.singer,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                        ),
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ),
                 ),
-                // 播放/暂停按钮
+                // 进度
+                if (state.duration.inMilliseconds > 0)
+                  SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: CircularProgressIndicator(
+                      value: state.duration.inMilliseconds > 0
+                          ? state.position.inMilliseconds / state.duration.inMilliseconds
+                          : 0,
+                      strokeWidth: 2,
+                      backgroundColor: Theme.of(context).dividerColor,
+                    ),
+                  ),
+                const SizedBox(width: 4),
+                // 控制
                 IconButton(
                   icon: Icon(state.isPlaying ? Icons.pause : Icons.play_arrow),
-                  onPressed: () {},
+                  onPressed: () => ref.read(playerServiceProvider).playOrPause(),
                 ),
-                // 下一曲
                 IconButton(
                   icon: const Icon(Icons.skip_next),
-                  onPressed: () {},
+                  onPressed: () => ref.read(playerServiceProvider).next(),
                 ),
               ],
             ),
@@ -90,6 +101,17 @@ class MiniPlayerBar extends ConsumerWidget {
       },
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+
+  Widget _albumPlaceholder(BuildContext context) {
+    return Container(
+      width: 48, height: 48,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Icon(Icons.music_note, size: 24),
     );
   }
 }

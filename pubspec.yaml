@@ -1,5 +1,5 @@
 name: music_player
-description: "支持导入洛雪音源的跨平台音乐播放器"
+description: "支持导入洛雪音源的跨平台音乐播放器 - Material 3 跨平台"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,6 +9,8 @@ environment:
 
 dependencies:
   flutter:
+    sdk: flutter
+  flutter_localizations:
     sdk: flutter
 
   # 状态管理
@@ -28,7 +30,6 @@ dependencies:
 
   # 音频
   just_audio: ^0.10.6
-  audio_service: ^0.18.19
 
   # 图片
   cached_network_image: ^3.4.0
@@ -48,7 +49,6 @@ dependencies:
   url_launcher: ^6.2.6
   share_plus: ^10.0.0
   package_info_plus: ^8.0.0
-  device_info_plus: ^11.0.0
 
   # UI
   material_design_icons_flutter: ^7.0.7296
@@ -59,6 +59,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  mocktail: ^1.0.3
+  coverage: ^1.7.2
 
 flutter:
   uses-material-design: true
