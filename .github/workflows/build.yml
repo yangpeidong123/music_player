@@ -112,18 +112,18 @@ jobs:
           flutter build windows --release
 
       - name: Archive
-        shell: pwsh
+        shell: bash
         run: |
-          # $HOME 在 pwsh 中已设置, 复用它
-          $source = Join-Path $env:HOME "music_player_temp\build\windows\x64\runner\Release\*"
-          $dest = Join-Path $env:GITHUB_WORKSPACE "windows-release.zip"
-          Write-Host "Source: $source"
-          Write-Host "Dest: $dest"
-          Write-Host "HOME: $env:HOME"
-          if (Test-Path $dest) { Remove-Item $dest -Force }
-          Compress-Archive -Path $source -DestinationPath $dest -Force
-          Write-Host "Created: $dest"
-          Get-ChildItem $dest
+          # Use 7-Zip alternative with PowerShell Compress-Archive
+          # Run PowerShell with explicit path
+          SOURCE="/c/Users/runneradmin/music_player_temp/build/windows/x64/runner/Release"
+          DEST="$GITHUB_WORKSPACE/windows-release.zip"
+          echo "Source: $SOURCE"
+          echo "Dest: $DEST"
+          ls -la "$SOURCE" | head -5
+          powershell.exe -NoProfile -Command "Compress-Archive -Path '$SOURCE\\*' -DestinationPath '$DEST' -Force"
+          echo "Created:"
+          ls -la "$DEST"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
