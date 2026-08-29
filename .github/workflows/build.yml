@@ -34,15 +34,13 @@ jobs:
         shell: bash
         run: |
           cd $HOME
-          flutter create --platforms=android --org com.example --project-name music_player music_player_temp
+          flutter create -t app --platforms=android --org com.example --project-name music_player --no-pub music_player_temp
           cd music_player_temp
           rm -rf lib
           cp -r "$GITHUB_WORKSPACE/lib" .
           cp -r "$GITHUB_WORKSPACE/assets" .
           cp "$GITHUB_WORKSPACE/pubspec.yaml" pubspec.yaml
-          cp "$GITHUB_WORKSPACE/analysis_options.yaml" . 2>/dev/null || true
-          cp "$GITHUB_WORKSPACE/.gitignore" . 2>/dev/null || true
-          # 修复 flutter_js JVM target 不一致: 通过 gradle.properties 全局设置
+          # 不要覆盖 .gitignore 和 analysis_options.yaml
           echo "org.gradle.jvmargs=-Xmx2048M" >> android/gradle.properties
           echo "kotlin.jvm.target.validation.mode=warning" >> android/gradle.properties
           flutter pub get
@@ -114,13 +112,17 @@ jobs:
       - name: Archive
         shell: bash
         run: |
-          # 用 tar 创建 zip 文件（Windows 自带 tar 支持 zip 格式）
+          # 用 tar 创建 zip 文件 (Windows 自带 tar 支持 zip 格式)
+          # 在 $HOME 目录下创建, 避免 GITHUB_WORKSPACE 中的 D:\ 路径问题
           cd "$HOME/music_player_temp/build/windows/x64/runner/Release"
-          tar -a -c -f "$GITHUB_WORKSPACE/windows-release.zip" *
-          echo "Created zip:"
+          ZIP_PATH="$HOME/windows-release.zip"
+          tar -a -c -f "$ZIP_PATH" *
+          echo "Created zip at: $ZIP_PATH"
+          ls -la "$ZIP_PATH"
+          # 用 cp 复制到 GITHUB_WORKSPACE (cp 在 Git Bash 中能正确处理 Windows 路径)
+          mkdir -p "$GITHUB_WORKSPACE"
+          cp "$ZIP_PATH" "$GITHUB_WORKSPACE/windows-release.zip" 2>/dev/null || cp "$ZIP_PATH" "/d/a/music_player/music_player/windows-release.zip"
           ls -la "$GITHUB_WORKSPACE/windows-release.zip"
-        env:
-          GITHUB_WORKSPACE: ${{ github.workspace }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
