@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
+import '../engine/source_engine.dart';
 
 /// 歌曲模型
 class SongEntry {
@@ -44,6 +45,18 @@ class SongEntry {
         'source': source, 'musicId': musicId, 'img': img,
         'interval': interval, 'hash': hash,
       };
+
+  /// 转为播放用的 MusicInfo（收藏/历史/歌单点播用）
+  MusicInfo toMusicInfo() => MusicInfo(
+        id: musicId,
+        name: name,
+        singer: singer,
+        album: album,
+        source: source,
+        img: img,
+        interval: interval > 0 ? interval : null,
+        hash: hash,
+      );
 }
 
 /// 歌单模型
@@ -79,11 +92,13 @@ class SourceEntry {
 
 /// SQLite 数据库 — 使用 sqflite（无需代码生成）
 class AppDatabase {
-  Database? _db;
+  // 缓存 Future 而非结果：避免两个并发调用都进入 _init() 导致
+  // openDatabase 被调用两次、后一个覆盖前一个的竞态。
+  Future<Database>? _dbFuture;
 
-  Future<Database> get db async {
-    _db ??= await _init();
-    return _db!;
+  Future<Database> get db {
+    _dbFuture ??= _init();
+    return _dbFuture!;
   }
 
   Future<Database> _init() async {
@@ -247,5 +262,12 @@ class AppDatabase {
     return list.isEmpty ? null : list.first['script'] as String?;
   }
 
-  Future<void> close() async => await _db?.close();
+  Future<void> close() async {
+    final future = _dbFuture;
+    _dbFuture = null;
+    if (future != null) {
+      final d = await future;
+      await d.close();
+    }
+  }
 }

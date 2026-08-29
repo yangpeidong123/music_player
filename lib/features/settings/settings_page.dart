@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/player/player_service.dart';
 import '../../shared/providers/providers.dart';
 
@@ -96,9 +97,27 @@ class SettingsPage extends ConsumerWidget {
           ),
 
           _buildSection(context, '关于'),
-          _buildItem(context, Icons.info, '关于应用', 'v1.0.0', null),
-          _buildItem(context, Icons.code, '开源协议', 'MIT License', null),
-          _buildItem(context, Icons.bug_report, '反馈问题', '提交 Bug 或建议', null),
+          ListTile(
+            leading: const Icon(Icons.info),
+            title: const Text('关于应用'),
+            subtitle: const Text('v1.0.0'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _showAboutDialog(context),
+          ),
+          ListTile(
+            leading: const Icon(Icons.code),
+            title: const Text('开源协议'),
+            subtitle: const Text('查看依赖许可'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _showLicensePage(context),
+          ),
+          ListTile(
+            leading: const Icon(Icons.bug_report),
+            title: const Text('反馈问题'),
+            subtitle: const Text('提交 Bug 或建议'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _openFeedback,
+          ),
 
           const SizedBox(height: 32),
           Center(
@@ -195,7 +214,7 @@ class SettingsPage extends ConsumerWidget {
               runSpacing: 12,
               children: colors.map((c) => GestureDetector(
                 onTap: () {
-                  // TODO: 持久化颜色
+                  ref.read(appSettingsProvider.notifier).setThemeColor(c);
                   Navigator.pop(ctx);
                 },
                 child: Container(
@@ -203,13 +222,42 @@ class SettingsPage extends ConsumerWidget {
                   decoration: BoxDecoration(
                     color: Color(c),
                     shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
                   ),
-                ),
-              )).toList(),
+                  ),
+                )).toList(),
             ),
           ),
         ],
       ),
     );
+  }
+
+  void _showAboutDialog(BuildContext context) {
+    showAboutDialog(
+      context: context,
+      applicationName: '音乐播放器',
+      applicationVersion: 'v1.0.0',
+      applicationLegalese: '© 2026 yangpeidong123',
+      children: const [
+        SizedBox(height: 12),
+        Text('一款支持导入洛雪音源的跨平台音乐播放器。'),
+      ],
+    );
+  }
+
+  void _showLicensePage(BuildContext context) {
+    showLicensePage(
+      context: context,
+      applicationName: '音乐播放器',
+      applicationVersion: 'v1.0.0',
+    );
+  }
+
+  Future<void> _openFeedback() async {
+    final uri = Uri.parse('https://github.com/yangpeidong123/music_player/issues');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 }

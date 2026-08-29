@@ -73,6 +73,41 @@ void main() {
       expect(meta['ar'], '艺术家');
       expect(meta['al'], '专辑名');
     });
+
+    test('parses translation tag', () {
+      const lrc = '[00:05.00] 原文歌词 [tr:翻译歌词]';
+      final lines = LyricParser.parse(lrc);
+      expect(lines, hasLength(1));
+      expect(lines[0].text, '原文歌词');
+      expect(lines[0].translation, '翻译歌词');
+      expect(lines[0].roma, isNull);
+    });
+
+    test('parses roma tag', () {
+      const lrc = '[00:05.00] 原文歌词 [roma:romaji]';
+      final lines = LyricParser.parse(lrc);
+      expect(lines, hasLength(1));
+      expect(lines[0].text, '原文歌词');
+      expect(lines[0].roma, 'romaji');
+    });
+
+    test('parses translation and roma together', () {
+      const lrc = '[00:05.00] 原文 [tr:翻译] [roma:罗马音]';
+      final lines = LyricParser.parse(lrc);
+      expect(lines, hasLength(1));
+      expect(lines[0].text, '原文');
+      expect(lines[0].translation, '翻译');
+      expect(lines[0].roma, '罗马音');
+    });
+
+    test('translation does not leak into text', () {
+      const lrc = '[00:00.00] 第一句 [tr:first]\n[00:05.00] 第二句';
+      final lines = LyricParser.parse(lrc);
+      expect(lines[0].text, '第一句');
+      expect(lines[0].translation, 'first');
+      expect(lines[1].text, '第二句');
+      expect(lines[1].translation, isNull);
+    });
   });
 
   group('LyricsEngine', () {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/engine/source_engine.dart';
 import '../../shared/providers/providers.dart';
 
@@ -232,7 +233,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
             const Text('请先在设置中导入洛雪音源', textAlign: TextAlign.center),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: () => Navigator.pushNamed(context, '/settings/sources'),
+              onPressed: () => context.push('/settings/sources'),
               icon: const Icon(Icons.settings),
               label: const Text('去导入'),
             ),
@@ -319,10 +320,20 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         style: Theme.of(context).textTheme.bodySmall,
       ),
       onTap: () {
-        // 播放这首歌和当前列表
+        // 播放这首歌和当前列表（统一播放入口：PlayerService + UI 队列同步）
         final currentList = ref.read(searchResultsProvider).value ?? [];
-        ref.read(playQueueProvider.notifier).setQueue(currentList, startIndex: index);
-        Navigator.pushNamed(context, '/player');
+        playQueue(ref, currentList, startIndex: index);
+        context.push('/player');
+      },
+      onLongPress: () {
+        // 下一首播放
+        insertNextToPlay(ref, music);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已加入下一首播放: ${music.name}'),
+            duration: const Duration(seconds: 1),
+          ),
+        );
       },
     );
   }

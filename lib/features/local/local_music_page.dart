@@ -1,7 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../core/engine/source_engine.dart';
+import '../../shared/providers/providers.dart';
 import '../../shared/widgets/mini_player_bar.dart';
 
 /// 本地音乐扫描器
@@ -189,8 +192,16 @@ class _LocalMusicPageState extends ConsumerState<LocalMusicPage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       onTap: () {
-                        // 使用 just_audio 播放本地文件
-                        // _player.setFilePath(file.path);
+                        // 播放本地文件：source='local'，hash 存文件路径
+                        final queue = _files.map((f) => MusicInfo(
+                              id: f.path,
+                              name: f.name,
+                              singer: f.singer,
+                              source: 'local',
+                              hash: f.path,
+                            )).toList();
+                        playQueue(ref, queue, startIndex: index);
+                        context.push('/player');
                       },
                     );
                   },

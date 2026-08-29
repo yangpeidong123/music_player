@@ -71,11 +71,12 @@ class LyricParser {
     final translations = <int, String>{};
     final romas = <int, String>{};
 
-    // 正则：匹配 [时间] 或 [时间.毫秒] 和 [时间][翻译] 或 [时间.毫秒][翻译]
+    // 正则：匹配 [时间] 或 [时间.毫秒]
     final timeRegex = RegExp(r'\[(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?\]');
     final allTimeRegex = RegExp(r'\[(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?\]');
-    final translationRegex = RegExp(r'\]\s*\[(tr|translation)\s*:[^\]]*\]', caseSensitive: false);
-    final romaRegex = RegExp(r'\]\s*\[(roma|romaji)\s*:[^\]]*\]', caseSensitive: false);
+    // 翻译/罗马音以独立标签形式出现，如 [tr:中文] [roma:xxx]
+    final translationTagRegex = RegExp(r'\[(?:tr|translation)\s*:([^\]]*)\]', caseSensitive: false);
+    final romaTagRegex = RegExp(r'\[(?:roma|romaji)\s*:([^\]]*)\]', caseSensitive: false);
 
     for (final rawLine in content.split('\n')) {
       final line = rawLine.trim();
@@ -90,21 +91,19 @@ class LyricParser {
       final matches = allTimeRegex.allMatches(line).toList();
       if (matches.isEmpty) continue;
 
-      // 提取纯文本（去除所有时间标签）
-      final text = line.replaceAll(timeRegex, '').trim();
-      if (text.isEmpty) continue;
+      // 提取翻译/罗马音（直接从对应标签捕获内容，而非匹配后再删除）
+      final tMatch = translationTagRegex.firstMatch(line);
+      final translation = tMatch?.group(1)?.trim();
+      final rMatch = romaTagRegex.firstMatch(line);
+      final roma = rMatch?.group(1)?.trim();
 
-      // 提取翻译和罗马音（紧跟时间标签后）
-      String? translation;
-      String? roma;
-      final tMatch = translationRegex.firstMatch(line);
-      if (tMatch != null) {
-        translation = tMatch.group(0)?.replaceAll(RegExp(r'^\]\s*\[[^\]]*\]'), '').trim();
-      }
-      final rMatch = romaRegex.firstMatch(line);
-      if (rMatch != null) {
-        roma = rMatch.group(0)?.replaceAll(RegExp(r'^\]\s*\[[^\]]*\]'), '').trim();
-      }
+      // 提取纯文本：去掉所有时间标签 + 翻译/罗马音标签
+      final text = line
+          .replaceAll(timeRegex, '')
+          .replaceAll(translationTagRegex, '')
+          .replaceAll(romaTagRegex, '')
+          .trim();
+      if (text.isEmpty) continue;
 
       // 为每个时间标签创建一行
       for (final m in matches) {
@@ -115,8 +114,8 @@ class LyricParser {
         lines.add(LyricLine(
           time: time,
           text: text,
-          translation: translation,
-          roma: roma,
+          translation: (translation == null || translation.isEmpty) ? null : translation,
+          roma: (roma == null || roma.isEmpty) ? null : roma,
         ));
       }
     }

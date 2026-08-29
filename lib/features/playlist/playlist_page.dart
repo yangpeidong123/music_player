@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../shared/providers/providers.dart';
 import '../../shared/widgets/mini_player_bar.dart';
 
@@ -65,7 +66,7 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
                     if (v == 'delete') { await db.deletePlaylist(pl.id); setState(() {}); }
                   },
                 ),
-                onTap: () {},
+                onTap: () => _showPlaylistSongs(context, db, pl),
               );
             },
           );
@@ -110,5 +111,78 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
         ),
       ],
     ));
+  }
+
+  /// 打开歌单详情：展示歌曲列表，可点播
+  void _showPlaylistSongs(BuildContext context, dynamic db, dynamic pl) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.95,
+        minChildSize: 0.4,
+        expand: false,
+        builder: (ctx, scrollController) => Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(pl.name,
+                        style: Theme.of(ctx).textTheme.titleLarge,
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: FutureBuilder(
+                future: db.getPlaylistSongs(pl.id),
+                builder: (ctx, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final songs = snapshot.data!;
+                  if (songs.isEmpty) {
+                    return const Center(child: Text('歌单还没有歌曲'));
+                  }
+                  return ListView.builder(
+                    controller: scrollController,
+                    itemCount: songs.length,
+                    itemBuilder: (ctx, index) {
+                      final song = songs[index];
+                      return ListTile(
+                        leading: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: song.img != null
+                              ? Image.network(song.img!, width: 48, height: 48, fit: BoxFit.cover)
+                              : Container(width: 48, height: 48,
+                                  color: Theme.of(ctx).colorScheme.primaryContainer,
+                                  child: const Icon(Icons.music_note)),
+                        ),
+                        title: Text(song.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        subtitle: Text(song.singer, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        onTap: () {
+                          final queue = songs.map((s) => s.toMusicInfo()).toList();
+                          playQueue(ref, queue, startIndex: index);
+                          Navigator.pop(ctx);
+                          context.push('/player');
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

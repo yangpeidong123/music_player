@@ -588,11 +588,16 @@ class SourceEngine {
         })).toList();
   }
 
+  /// 转义用于嵌入到 JS 单引号字符串字面量中的内容。
+  /// 注意必须转义 U+2028 / U+2029（行/段分隔符）——它们在 JSON 里合法，
+  /// 但在 JS 字符串字面量中是非法的，会让 evaluate 直接抛语法错误。
   String _escapeJsString(String s) => s
       .replaceAll('\\', '\\\\')
       .replaceAll("'", "\\'")
       .replaceAll('\n', '\\n')
-      .replaceAll('\r', '\\r');
+      .replaceAll('\r', '\\r')
+      .replaceAll(' ', '\\u2028')
+      .replaceAll(' ', '\\u2029');
 
   // ============================================================
   // 资源清理

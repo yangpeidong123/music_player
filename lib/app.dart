@@ -53,12 +53,13 @@ class MusicPlayerApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appSettingsProvider);
+    final seed = Color(settings.themeColor);
 
     return MaterialApp.router(
       title: '音乐播放器',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
+      theme: AppTheme.light(seed),
+      darkTheme: AppTheme.dark(seed),
       themeMode: settings.darkMode ? ThemeMode.dark : ThemeMode.system,
       routerConfig: goRouter,
     );

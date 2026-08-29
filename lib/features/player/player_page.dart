@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../core/player/player_service.dart';
 import '../../core/player/lyrics_engine.dart';
+import '../../core/engine/source_engine.dart';
 import '../../shared/providers/providers.dart';
 
 /// 全屏播放器
@@ -32,6 +34,32 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
   void dispose() {
     _rotationController.dispose();
     super.dispose();
+  }
+
+  /// 当前歌曲是否已收藏（依赖 favoritesProvider）
+  bool _isFavorite(MusicInfo music) {
+    final favs = ref.watch(favoritesProvider).value;
+    if (favs == null) return false;
+    return favs.contains(music.stableId);
+  }
+
+  Future<void> _toggleFavorite(MusicInfo music) async {
+    final fav = await toggleFavorite(ref, music);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(fav ? '已收藏: ${music.name}' : '已取消收藏: ${music.name}'),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+    }
+  }
+
+  void _shareMusic(MusicInfo music) {
+    Share.share(
+      '正在听《${music.name}》 - ${music.singer}',
+      subject: music.name,
+    );
   }
 
   @override
@@ -103,7 +131,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
         const Spacer(),
         IconButton(
           icon: const Icon(Icons.more_vert),
-          onPressed: () => _showOptions(context),
+          onPressed: () => _showOptions(context, state.currentMusic),
           tooltip: '更多',
         ),
       ],
@@ -268,10 +296,11 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.favorite_border),
-            onPressed: () {
-              // TODO: 收藏
-            },
+            icon: Icon(
+              _isFavorite(music) ? Icons.favorite : Icons.favorite_border,
+              color: _isFavorite(music) ? Colors.red : null,
+            ),
+            onPressed: () => _toggleFavorite(music),
             tooltip: '收藏',
           ),
         ],
@@ -384,6 +413,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
   }
 
   Widget _buildBottomBar(BuildContext context, PlayerStateData state, ThemeData theme) {
+    final music = state.currentMusic;
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
       child: Row(
@@ -395,13 +425,17 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
           ),
           const Spacer(),
           IconButton(
-            icon: Icon(state.queue.isEmpty ? Icons.favorite_border : Icons.favorite, size: 20),
-            onPressed: () {},
+            icon: Icon(
+              music != null && _isFavorite(music) ? Icons.favorite : Icons.favorite_border,
+              size: 20,
+              color: music != null && _isFavorite(music) ? Colors.red : null,
+            ),
+            onPressed: music == null ? null : () => _toggleFavorite(music),
             tooltip: '收藏',
           ),
           IconButton(
             icon: const Icon(Icons.share, size: 20),
-            onPressed: () {},
+            onPressed: music == null ? null : () => _shareMusic(music),
             tooltip: '分享',
           ),
           IconButton(
@@ -414,17 +448,38 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
     );
   }
 
-  void _showOptions(BuildContext context) {
+  void _showOptions(BuildContext context, MusicInfo? music) {
+    if (music == null) return;
     showModalBottomSheet(
       context: context,
-      builder: (context) => SafeArea(
+      builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(leading: const Icon(Icons.album), title: const Text('查看专辑')),
-            ListTile(leading: const Icon(Icons.artist), title: const Text('歌手主页')),
-            ListTile(leading: const Icon(Icons.report), title: const Text('歌曲反馈')),
-            ListTile(leading: const Icon(Icons.block), title: const Text('不再播放')),
+            ListTile(
+              leading: Icon(_isFavorite(music) ? Icons.favorite : Icons.favorite_border),
+              title: Text(_isFavorite(music) ? '取消收藏' : '收藏'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _toggleFavorite(music);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.share),
+              title: const Text('分享'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _shareMusic(music);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.skip_next),
+              title: const Text('下一首播放'),
+              onTap: () {
+                Navigator.pop(ctx);
+                ref.read(playerServiceProvider).next();
+              },
+            ),
           ],
         ),
       ),

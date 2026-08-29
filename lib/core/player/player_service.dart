@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import '../engine/source_engine.dart';
@@ -96,7 +97,9 @@ class PlayerStateData {
 /// 音乐播放服务
 class PlayerService {
   final AudioPlayer _player = AudioPlayer();
-  final SourceEngine? _sourceEngine;
+  // 音源引擎改为可变、运行时注入：PlayerService 是常驻单例，
+  // 切换/导入/删除音源不应导致播放器被 dispose 重建（否则播放中断、队列丢失）。
+  SourceEngine? _sourceEngine;
   final LyricsEngine _lyricsEngine = LyricsEngine();
 
   List<MusicInfo> _queue = [];
@@ -139,6 +142,14 @@ class PlayerService {
   PlayerService({SourceEngine? sourceEngine}) : _sourceEngine = sourceEngine {
     _setupListeners();
   }
+
+  /// 运行时切换音源引擎，不影响当前播放与队列。
+  void setSourceEngine(SourceEngine? engine) {
+    _sourceEngine = engine;
+  }
+
+  /// 可选：播放记录回调（用于写播放历史），由 providers 层注入以避免 core 依赖 storage。
+  void Function(MusicInfo music)? onPlayRecorded;
 
   void _setupListeners() {
     _player.playbackEventStream.listen((_) => _emit());
@@ -194,13 +205,32 @@ class PlayerService {
 
   void removeFromQueue(int index) {
     if (index < 0 || index >= _queue.length) return;
-    if (index < _currentIndex) {
-      _currentIndex--;
-    } else if (index == _currentIndex) {
-      _player.stop();
-    }
+    final wasCurrent = index == _currentIndex;
     _queue.removeAt(index);
-    _emit();
+
+    if (index < _currentIndex) {
+      // 删除的是当前之前的项，索引前移一位
+      _currentIndex--;
+      _emit();
+    } else if (wasCurrent) {
+      // 删除的是当前播放项：需要切到同一位置的歌（即原下一首），
+      // 若没有下一首则停止。_playAt 会重新设置 _currentIndex/_currentMusic。
+      if (_queue.isEmpty) {
+        clearQueue();
+      } else if (index < _queue.length) {
+        _playAt(index);
+      } else {
+        // 删的是队尾，且它正在播放：停止并清除当前歌曲
+        _player.stop();
+        _currentIndex = -1;
+        _currentMusic = null;
+        _lyricsEngine.clear();
+        _emit();
+      }
+    } else {
+      // 删除的是当前之后的项，不影响当前播放
+      _emit();
+    }
   }
 
   void clearQueue() {
@@ -225,12 +255,39 @@ class PlayerService {
     _retryCount = 0;
     _emit();
 
-    if (_sourceEngine == null || _currentMusic == null) return;
+    final music = _currentMusic;
+    if (music == null) return;
+
+    // 记录播放历史（本地与在线都记录）
+    onPlayRecorded?.call(music);
+
+    // 本地文件：source 为 'local'，hash 存文件路径
+    if (music.source == 'local') {
+      final path = music.hash;
+      if (path == null || path.isEmpty) {
+        _setError('本地文件路径缺失');
+        return;
+      }
+      try {
+        await _player.setFilePath(path);
+        await _player.play();
+        _lyricsEngine.clear();
+      } on Exception catch (e) {
+        _setError('本地文件加载失败: $e');
+      }
+      return;
+    }
+
+    // 在线：需要音源引擎
+    if (_sourceEngine == null) {
+      _setError('未加载音源，无法播放');
+      return;
+    }
 
     try {
       final url = await _sourceEngine!.getMusicUrl(
-        source: _currentMusic!.source,
-        music: _currentMusic!,
+        source: music.source,
+        music: music,
         quality: _currentQuality,
       );
       if (url == null || url.isEmpty) {
@@ -395,10 +452,12 @@ class PlayerService {
 
   int _randomIndex() {
     if (_queue.length <= 1) return 0;
-    final random = DateTime.now().microsecondsSinceEpoch;
+    // 必须在循环内取随机数；若在循环外取一次再取模，
+    // 当结果恰好等于当前索引时 do-while 会永远循环（死循环）。
+    final rand = math.Random();
     int r;
     do {
-      r = random % _queue.length;
+      r = rand.nextInt(_queue.length);
     } while (r == _currentIndex);
     return r;
   }

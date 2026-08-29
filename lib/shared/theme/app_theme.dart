@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  static const _seed = Color(0xFF6750A4);
+  /// 按主题色生成浅色主题
+  static ThemeData light(Color seed) => _build(Brightness.light, seed);
+  /// 按主题色生成深色主题
+  static ThemeData dark(Color seed) => _build(Brightness.dark, seed);
 
-  /// Material 3 浅色主题
-  static ThemeData get lightTheme => _build(Brightness.light);
-  /// Material 3 深色主题
-  static ThemeData get darkTheme => _build(Brightness.dark);
-
-  static ThemeData _build(Brightness brightness) {
+  static ThemeData _build(Brightness brightness, Color seed) {
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: _seed,
+      seedColor: seed,
       brightness: brightness,
     );
 

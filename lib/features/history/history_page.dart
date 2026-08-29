@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../shared/providers/providers.dart';
 import '../../shared/widgets/mini_player_bar.dart';
 
@@ -63,7 +64,12 @@ class _HistoryPageState extends ConsumerState<HistoryPage> {
                 title: Text(song.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                 subtitle: Text(song.singer, maxLines: 1, overflow: TextOverflow.ellipsis),
                 trailing: Text('${song.interval}s'),
-                onTap: () {},
+                onTap: () {
+                  // 点播：把整个历史列表作为播放队列，从当前这首开始
+                  final queue = list.map((s) => s.toMusicInfo()).toList();
+                  playQueue(ref, queue, startIndex: index);
+                  context.push('/player');
+                },
               );
             },
           );
