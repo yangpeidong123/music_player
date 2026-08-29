@@ -27,25 +27,21 @@ jobs:
         with:
           channel: 'stable'
 
-      # 策略：把当前代码（lib/ assets/ pubspec.yaml）复制到一个新建的 Flutter 项目中
-      # 避免 flutter create . 检测不到 Flutter 项目的复杂问题
+      - name: Get dependencies
+        run: flutter pub get
+
       - name: Create temp Flutter project
         run: |
           cd $HOME
           flutter create --platforms=android --org com.example --project-name music_player music_player_temp
           cd music_player_temp
-          # 用我们的代码替换 lib/ assets/ pubspec.yaml
           rm -rf lib
           cp -r $GITHUB_WORKSPACE/lib .
           cp -r $GITHUB_WORKSPACE/assets .
-          # 合并 pubspec.yaml (用我们的)
           cp $GITHUB_WORKSPACE/pubspec.yaml pubspec.yaml
-          # 合并 analysis_options.yaml
           cp $GITHUB_WORKSPACE/analysis_options.yaml . 2>/dev/null || true
-          # 合并 .gitignore
           cp $GITHUB_WORKSPACE/.gitignore . 2>/dev/null || true
           flutter pub get
-          # 现在开始 build
           flutter build apk --release --split-per-abi
           flutter build apk --release
         env:
@@ -76,7 +72,6 @@ jobs:
           channel: 'stable'
 
       - name: Create temp Flutter project
-        shell: bash
         run: |
           cd $HOME
           flutter create --platforms=windows --org com.example --project-name music_player music_player_temp
@@ -88,9 +83,31 @@ jobs:
           cp "$GITHUB_WORKSPACE/analysis_options.yaml" . 2>/dev/null || true
           cp "$GITHUB_WORKSPACE/.gitignore" . 2>/dev/null || true
           flutter pub get
-          flutter build windows --release
         env:
           GITHUB_WORKSPACE: ${{ github.workspace }}
+
+      - name: Patch CMakeLists to suppress coroutine deprecation
+        shell: pwsh
+        run: |
+          # 在所有 vcxproj 中添加 /D _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+          # 修复 Windows MSVC STL1011 错误 (permission_handler / connectivity_plus 等插件触发)
+          Write-Host "Patching project files to silence coroutine deprecation warnings..."
+          Get-ChildItem -Path "$HOME/music_player_temp\windows" -Recurse -Filter "*.vcxproj" | ForEach-Object {
+            $content = Get-Content $_.FullName -Raw
+            if ($content -notmatch "_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS") {
+              # Add to ClCompile PreprocessorDefinitions
+              $newContent = $content -replace '<PreprocessorDefinitions>([^<]*)</PreprocessorDefinitions>', '<PreprocessorDefinitions>$1;_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS</PreprocessorDefinitions>'
+              if ($newContent -ne $content) {
+                Set-Content -Path $_.FullName -Value $newContent
+                Write-Host "Patched: $($_.FullName)"
+              }
+            }
+          }
+
+      - name: Build Windows
+        run: |
+          cd $HOME/music_player_temp
+          flutter build windows --release
 
       - name: Archive
         shell: pwsh
