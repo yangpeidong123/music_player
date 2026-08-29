@@ -114,9 +114,12 @@ jobs:
       - name: Archive
         shell: pwsh
         run: |
-          $env:USERPROFILE = $env:HOME
-          $source = Join-Path $env:USERPROFILE "music_player_temp\build\windows\x64\runner\Release\*"
+          # $HOME 在 pwsh 中已设置, 复用它
+          $source = Join-Path $env:HOME "music_player_temp\build\windows\x64\runner\Release\*"
           $dest = Join-Path $env:GITHUB_WORKSPACE "windows-release.zip"
+          Write-Host "Source: $source"
+          Write-Host "Dest: $dest"
+          Write-Host "HOME: $env:HOME"
           if (Test-Path $dest) { Remove-Item $dest -Force }
           Compress-Archive -Path $source -DestinationPath $dest -Force
           Write-Host "Created: $dest"
