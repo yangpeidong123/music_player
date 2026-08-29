@@ -10,16 +10,16 @@ enum PlayMode {
   sequence,    // 顺序播放
   loop,         // 列表循环
   singleLoop,   // 单曲循环
-  random,       // 随机播放
+  random;       // 随机播放（注意：enum 值列表以分号结尾才能定义成员）
 
-  get label => switch (this) {
+  String get label => switch (this) {
     PlayMode.sequence => '顺序播放',
     PlayMode.loop => '列表循环',
     PlayMode.singleLoop => '单曲循环',
     PlayMode.random => '随机播放',
   };
 
-  get nextMode => switch (this) {
+  PlayMode get nextMode => switch (this) {
     PlayMode.sequence => PlayMode.loop,
     PlayMode.loop => PlayMode.singleLoop,
     PlayMode.singleLoop => PlayMode.random,
