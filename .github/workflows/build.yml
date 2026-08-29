@@ -95,7 +95,13 @@ jobs:
       - name: Archive
         shell: pwsh
         run: |
-          Compress-Archive -Path "$HOME/music_player_temp/build/windows/x64/runner/Release/*" -DestinationPath "$GITHUB_WORKSPACE/windows-release.zip" -Force
+          $env:USERPROFILE = $env:HOME
+          $source = Join-Path $env:USERPROFILE "music_player_temp\build\windows\x64\runner\Release\*"
+          $dest = Join-Path $env:GITHUB_WORKSPACE "windows-release.zip"
+          if (Test-Path $dest) { Remove-Item $dest -Force }
+          Compress-Archive -Path $source -DestinationPath $dest -Force
+          Write-Host "Created: $dest"
+          Get-ChildItem $dest
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
