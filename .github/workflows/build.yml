@@ -93,10 +93,9 @@ jobs:
           GITHUB_WORKSPACE: ${{ github.workspace }}
 
       - name: Archive
-        shell: bash
+        shell: pwsh
         run: |
-          cd $HOME/music_player_temp/build/windows/x64/runner/Release
-          7z a "$GITHUB_WORKSPACE/windows-release.zip" *
+          Compress-Archive -Path "$HOME/music_player_temp/build/windows/x64/runner/Release/*" -DestinationPath "$GITHUB_WORKSPACE/windows-release.zip" -Force
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
