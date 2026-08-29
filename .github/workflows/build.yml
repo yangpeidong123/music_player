@@ -12,7 +12,7 @@ jobs:
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -31,16 +31,46 @@ jobs:
         run: flutter pub get
 
       - name: Create temp Flutter project
+        shell: bash
         run: |
           cd $HOME
           flutter create --platforms=android --org com.example --project-name music_player music_player_temp
           cd music_player_temp
           rm -rf lib
-          cp -r $GITHUB_WORKSPACE/lib .
-          cp -r $GITHUB_WORKSPACE/assets .
-          cp $GITHUB_WORKSPACE/pubspec.yaml pubspec.yaml
-          cp $GITHUB_WORKSPACE/analysis_options.yaml . 2>/dev/null || true
-          cp $GITHUB_WORKSPACE/.gitignore . 2>/dev/null || true
+          cp -r "$GITHUB_WORKSPACE/lib" .
+          cp -r "$GITHUB_WORKSPACE/assets" .
+          cp "$GITHUB_WORKSPACE/pubspec.yaml" pubspec.yaml
+          cp "$GITHUB_WORKSPACE/analysis_options.yaml" . 2>/dev/null || true
+          cp "$GITHUB_WORKSPACE/.gitignore" . 2>/dev/null || true
+          # 修复 flutter_js JVM target 不一致问题
+          # 在 android/app/build.gradle 中添加 kotlinOptions
+          echo "
+          android {
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }" >> android/app/build.gradle
+          # 全局修复: 在 android/build.gradle 中强制所有模块用同一 JVM target
+          echo "
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty('android')) {
+                      project.android {
+                          compileOptions {
+                              sourceCompatibility JavaVersion.VERSION_17
+                              targetCompatibility JavaVersion.VERSION_17
+                          }
+                      }
+                      project.android.kotlinOptions {
+                          jvmTarget = '17'
+                      }
+                  }
+              }
+          }" >> android/build.gradle
           flutter pub get
           flutter build apk --release --split-per-abi
           flutter build apk --release
@@ -62,7 +92,7 @@ jobs:
   build-windows:
     name: Build Windows EXE
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -90,13 +120,9 @@ jobs:
       - name: Patch CMakeLists to suppress coroutine deprecation
         shell: pwsh
         run: |
-          # 在所有 vcxproj 中添加 /D _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
-          # 修复 Windows MSVC STL1011 错误 (permission_handler / connectivity_plus 等插件触发)
-          Write-Host "Patching project files to silence coroutine deprecation warnings..."
-          Get-ChildItem -Path "$HOME/music_player_temp\windows" -Recurse -Filter "*.vcxproj" | ForEach-Object {
+          Get-ChildItem -Path "$env:USERPROFILE\music_player_temp\windows" -Recurse -Filter "*.vcxproj" | ForEach-Object {
             $content = Get-Content $_.FullName -Raw
             if ($content -notmatch "_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS") {
-              # Add to ClCompile PreprocessorDefinitions
               $newContent = $content -replace '<PreprocessorDefinitions>([^<]*)</PreprocessorDefinitions>', '<PreprocessorDefinitions>$1;_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS</PreprocessorDefinitions>'
               if ($newContent -ne $content) {
                 Set-Content -Path $_.FullName -Value $newContent
@@ -108,22 +134,19 @@ jobs:
       - name: Build Windows
         shell: bash
         run: |
-          cd $HOME/music_player_temp
+          cd "$HOME/music_player_temp"
           flutter build windows --release
 
       - name: Archive
         shell: bash
         run: |
-          # Use 7-Zip alternative with PowerShell Compress-Archive
-          # Run PowerShell with explicit path
-          SOURCE="/c/Users/runneradmin/music_player_temp/build/windows/x64/runner/Release"
-          DEST="$GITHUB_WORKSPACE/windows-release.zip"
-          echo "Source: $SOURCE"
-          echo "Dest: $DEST"
-          ls -la "$SOURCE" | head -5
-          powershell.exe -NoProfile -Command "Compress-Archive -Path '$SOURCE\\*' -DestinationPath '$DEST' -Force"
-          echo "Created:"
-          ls -la "$DEST"
+          # 用 tar 创建 zip 文件（Windows 自带 tar 支持 zip 格式）
+          cd "$HOME/music_player_temp/build/windows/x64/runner/Release"
+          tar -a -c -f "$GITHUB_WORKSPACE/windows-release.zip" *
+          echo "Created zip:"
+          ls -la "$GITHUB_WORKSPACE/windows-release.zip"
+        env:
+          GITHUB_WORKSPACE: ${{ github.workspace }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
