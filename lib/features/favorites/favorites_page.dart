@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/storage/database.dart';
 import '../../shared/providers/providers.dart';
 import '../../shared/widgets/mini_player_bar.dart';
 
@@ -16,7 +17,7 @@ class _FavoritesPageState extends ConsumerState<FavoritesPage> {
     final db = ref.watch(databaseProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('我的收藏')),
-      body: FutureBuilder(
+      body: FutureBuilder<List<SongEntry>>(
         future: db.getFavorites(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/player/player_service.dart';
 import '../../core/player/lyrics_engine.dart';
@@ -71,7 +72,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
     return Scaffold(
       body: SafeArea(
         child: playerState.when(
-          data: (state) => _buildContent(context, state, lyricState, theme),
+          data: (state) => _buildContent(context, state, lyricState.value ?? LyricState.empty, theme),
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => Center(
             child: Column(
@@ -336,7 +337,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
               max: state.duration.inMilliseconds > 0 ? state.duration.inMilliseconds.toDouble() : 1,
               onChanged: state.processingState == ProcessingState.completed
                   ? null
-                  : (v) => seek(Duration(milliseconds: v.toInt())),
+                  : (v) => ref.read(playerServiceProvider).seek(Duration(milliseconds: v.toInt())),
             ),
           ),
           Row(

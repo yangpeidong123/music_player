@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/storage/database.dart';
 import '../../shared/providers/providers.dart';
 import '../../shared/widgets/mini_player_bar.dart';
 
@@ -37,7 +38,7 @@ class _HistoryPageState extends ConsumerState<HistoryPage> {
           ),
         ],
       ),
-      body: FutureBuilder(
+      body: FutureBuilder<List<SongEntry>>(
         future: db.getPlayHistory(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());

@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 
 /// LRC 歌词行
 class LyricLine {
@@ -68,8 +68,6 @@ class LyricParser {
   static List<LyricLine> parse(String content) {
     if (content.trim().isEmpty) return [];
     final lines = <LyricLine>[];
-    final translations = <int, String>{};
-    final romas = <int, String>{};
 
     // 正则：匹配 [时间] 或 [时间.毫秒]
     final timeRegex = RegExp(r'\[(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?\]');
@@ -215,9 +213,4 @@ class LyricsEngine {
   void dispose() {
     _controller.close();
   }
-}
-
-void debugPrint(String s) {
-  // ignore: avoid_print
-  print(s);
 }

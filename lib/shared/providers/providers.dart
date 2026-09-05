@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'core/engine/source_engine.dart';
-import 'core/engine/source_manager.dart';
-import 'core/player/player_service.dart';
-import 'core/player/lyrics_engine.dart';
-import 'core/storage/database.dart';
+import '../../core/engine/source_engine.dart';
+import '../../core/engine/source_manager.dart';
+import '../../core/player/player_service.dart';
+import '../../core/player/lyrics_engine.dart';
+import '../../core/storage/database.dart';
 
 /// 数据库 Provider
 final databaseProvider = Provider<AppDatabase>((ref) {

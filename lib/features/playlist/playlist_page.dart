@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/storage/database.dart';
 import '../../shared/providers/providers.dart';
 import '../../shared/widgets/mini_player_bar.dart';
 
@@ -21,7 +22,7 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
           IconButton(icon: const Icon(Icons.add), onPressed: () => _showCreateDialog(db)),
         ],
       ),
-      body: FutureBuilder(
+      body: FutureBuilder<List<PlaylistEntry>>(
         future: db.getAllPlaylists(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
@@ -142,7 +143,7 @@ class _PlaylistPageState extends ConsumerState<PlaylistPage> {
               ),
             ),
             Expanded(
-              child: FutureBuilder(
+              child: FutureBuilder<List<SongEntry>>(
                 future: db.getPlaylistSongs(pl.id),
                 builder: (ctx, snapshot) {
                   if (!snapshot.hasData) {
