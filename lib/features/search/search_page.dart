@@ -28,7 +28,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
 
   // 防抖
   DateTime? _lastSearchTime;
-  String _pendingQuery = '';
 
   static const _platforms = [
     {'id': 'kw', 'name': '酷我'},
@@ -141,7 +140,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   void _onQueryChanged(String value) {
     setState(() {}); // 更新清空按钮
     if (value.trim().isEmpty) return;
-    _pendingQuery = value;
     _lastSearchTime = DateTime.now();
     // 简单的 debounce
     Future.delayed(const Duration(milliseconds: 300), () {

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:collection';
 import 'source_engine.dart';
 
 /// 音源管理器 — 管理多个已加载的音源

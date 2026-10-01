@@ -1,14 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_js/flutter_js.dart';
 import 'package:dio/dio.dart';
 import 'package:crypto/crypto.dart' as crypto_lib;
 import 'package:encrypt/encrypt.dart' as encrypt_pkg;
-import 'package:archive/archive.dart' as archive_pkg;
 
 /// 洛雪音源元数据
 @immutable
@@ -279,7 +277,7 @@ class SourceEngine {
       if (response.statusCode != 200) {
         throw SourceLoadException('HTTP ${response.statusCode}');
       }
-      return loadFromScript(response.data ?? '');
+      return await loadFromScript(response.data ?? '');
     } on DioException catch (e) {
       throw SourceLoadException('Network error: ${e.message}', e);
     }

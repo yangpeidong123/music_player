@@ -1,16 +1,14 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import '../engine/source_engine.dart';
-import '../engine/source_manager.dart';
 import 'database.dart';
 
 /// 音源持久化管理
 class SourceStorage {
   final AppDatabase _db;
-  final SourceManager _manager;
   final Dio _dio;
 
-  SourceStorage(this._db, this._manager) : _dio = Dio();
+  SourceStorage(this._db) : _dio = Dio();
 
   /// 保存音源到数据库
   Future<String> save({required String script, String? url}) async {
