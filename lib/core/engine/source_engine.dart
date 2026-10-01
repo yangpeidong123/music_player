@@ -321,9 +321,9 @@ class SourceEngine {
 
   void _handleRequestMessage(dynamic args) {
     try {
-      final url = args[0] as String;
-      final optionsJson = args[1] as String? ?? '{}';
-      final uuid = args[2] as String;
+      final uuid = args[0] as String;
+      final url = args[1] as String;
+      final optionsJson = args[2] as String? ?? '{}';
       final options = jsonDecode(optionsJson) as Map<String, dynamic>;
       _doHttpRequest(url, options, uuid);
     } catch (e) {
@@ -333,9 +333,9 @@ class SourceEngine {
 
   void _handleCryptoMessage(dynamic args) {
     try {
-      final action = args[0] as String;
-      final paramsJson = args[1] as String? ?? '{}';
-      final uuid = args[2] as String;
+      final uuid = args[0] as String;
+      final action = args[1] as String;
+      final paramsJson = args[2] as String? ?? '{}';
       try {
         final result = _handleCrypto(action, paramsJson);
         _js.sendMessage(channelName: 'lx_crypto_response', args: [uuid, 'null', result]);
@@ -349,9 +349,9 @@ class SourceEngine {
 
   void _handleBufferMessage(dynamic args) {
     try {
-      final action = args[0] as String;
-      final paramsJson = args[1] as String? ?? '{}';
-      final uuid = args[2] as String;
+      final uuid = args[0] as String;
+      final action = args[1] as String;
+      final paramsJson = args[2] as String? ?? '{}';
       try {
         final result = _handleBuffer(action, paramsJson);
         _js.sendMessage(channelName: 'lx_buffer_response', args: [uuid, 'null', result]);
@@ -507,12 +507,12 @@ class SourceEngine {
         try {
           if (typeof globalThis.__lxRequestHandler === 'function') {
             const result = await globalThis.__lxRequestHandler(JSON.parse('$escapedJson'));
-            DART_TO_QUICKJS_CHANNEL_sendMessage('lx_call_response', JSON.stringify(['$uuid', 'null', JSON.stringify(result)]));
+            sendMessage('lx_call_response', JSON.stringify(['$uuid', 'null', JSON.stringify(result)]));
           } else {
-            DART_TO_QUICKJS_CHANNEL_sendMessage('lx_call_response', JSON.stringify(['$uuid', 'No request handler registered', 'null']));
+            sendMessage('lx_call_response', JSON.stringify(['$uuid', 'No request handler registered', 'null']));
           }
         } catch (e) {
-          DART_TO_QUICKJS_CHANNEL_sendMessage('lx_call_response', JSON.stringify(['$uuid', e.message || String(e), 'null']));
+          sendMessage('lx_call_response', JSON.stringify(['$uuid', e.message || String(e), 'null']));
         }
       })();
       1

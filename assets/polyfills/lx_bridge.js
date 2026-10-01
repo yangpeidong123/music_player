@@ -30,19 +30,13 @@
 
   // ——— 异步通信桥 ———
   // JS -> Dart
+  // flutter_js 的 JS->Dart 全局函数为 sendMessage(channel, jsonString)，
+  // Dart 端会 jsonDecode(message) 后交给 onMessage 回调，故必须传 JSON 字符串。
   let __NATIVE_sendMessage;
   if (typeof sendMessage === 'function') {
     __NATIVE_sendMessage = function(channel, args) {
       try {
-        sendMessage(channel, args);
-      } catch (e) {
-        console.error('[lx_bridge] sendMessage failed:', e);
-      }
-    };
-  } else if (typeof DART_TO_QUICKJS_CHANNEL_sendMessage === 'function') {
-    __NATIVE_sendMessage = function(channel, args) {
-      try {
-        DART_TO_QUICKJS_CHANNEL_sendMessage(channel, JSON.stringify(args));
+        sendMessage(channel, JSON.stringify(args));
       } catch (e) {
         console.error('[lx_bridge] sendMessage failed:', e);
       }
@@ -52,16 +46,19 @@
     __NATIVE_sendMessage = function() {};
   }
 
-  // Dart -> JS
-  globalThis.__receiveDartMessage = function(channel, argsJson) {
+  // Dart -> JS：runtime 的 sendMessage(channelName,args) 方法会 evaluate
+  // DART_TO_QUICKJS_CHANNEL_sendMessage(channel, jsonEncode(args))，故必须由我方
+  // 定义该全局函数来接收 Dart 回传的响应。
+  // 注意：lx_call_response 是 JS->Dart（callRequest 用 sendMessage 发给 Dart 的
+  // _handleCallResponse），不在此处理。
+  globalThis.DART_TO_QUICKJS_CHANNEL_sendMessage = function(channel, argsJson) {
     try {
       const args = typeof argsJson === 'string' ? JSON.parse(argsJson) : argsJson;
       switch (channel) {
         case 'lx_request_response':
         case 'lx_crypto_response':
         case 'lx_buffer_response':
-        case 'lx_zlib_response':
-        case 'lx_call_response': {
+        case 'lx_zlib_response': {
           const uuid = args[0];
           const err = args[1];
           const data = args[2];
@@ -82,7 +79,7 @@
           console.warn('[lx_bridge] Unknown channel:', channel);
       }
     } catch (e) {
-      console.error('[lx_bridge] __receiveDartMessage error:', e);
+      console.error('[lx_bridge] DART_TO_QUICKJS_CHANNEL_sendMessage error:', e);
     }
   };
 
