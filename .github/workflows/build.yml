@@ -50,6 +50,12 @@ jobs:
           # 不要覆盖 .gitignore 和 analysis_options.yaml
           echo "org.gradle.jvmargs=-Xmx2048M" >> android/gradle.properties
           echo "kotlin.jvm.target.validation.mode=warning" >> android/gradle.properties
+          # 注入运行时所需权限（默认 flutter 模板不含网络/存储/音频后台权限）
+          M=android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.INTERNET' "$M" || \
+            sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>\n    <uses-permission android:name="android.permission.WAKE_LOCK"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>\n    <application|' "$M"
+          echo "--- AndroidManifest head after permission patch ---"
+          head -20 "$M"
           flutter pub get
           flutter build apk --release --split-per-abi
           flutter build apk --release
