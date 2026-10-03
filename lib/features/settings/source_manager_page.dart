@@ -16,7 +16,7 @@ class _SourceManagerPageState extends ConsumerState<SourceManagerPage> {
   final _urlController = TextEditingController();
   bool _loading = false;
 
-  // 推荐音源
+  // 推荐音源（raw.githubusercontent.com 在部分地区不可达，附 jsDelivr 镜像）
   static const _recommendedSources = [
     {
       'name': '六音',
@@ -24,11 +24,44 @@ class _SourceManagerPageState extends ConsumerState<SourceManagerPage> {
       'url': 'https://raw.githubusercontent.com/pdone/lx-music-source/main/sixyin/latest.js',
     },
     {
+      'name': '六音 (jsDelivr 镜像)',
+      'description': 'raw 直连失败时的备用地址',
+      'url': 'https://cdn.jsdelivr.net/gh/pdone/lx-music-source@main/sixyin/latest.js',
+    },
+    {
       'name': '野花',
       'description': '开源综合音源',
       'url': 'https://raw.githubusercontent.com/pdone/lx-music-source/main/flower/latest.js',
     },
+    {
+      'name': '野花 (jsDelivr 镜像)',
+      'description': 'raw 直连失败时的备用地址',
+      'url': 'https://cdn.jsdelivr.net/gh/pdone/lx-music-source@main/flower/latest.js',
+    },
   ];
+
+  /// raw.githubusercontent.com URL -> jsDelivr 镜像（不可达时自动兜底）
+  static String? _toJsDelivr(String url) {
+    final m = RegExp(
+      r'^https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)$',
+    ).firstMatch(url);
+    if (m == null) return null;
+    return 'https://cdn.jsdelivr.net/gh/${m[1]}/${m[2]}@${m[3]}/${m[4]}';
+  }
+
+  /// 下载脚本：直连失败时自动尝试 jsDelivr 镜像
+  Future<Response<String>> _getScript(Dio dio, String url) async {
+    try {
+      return await dio.get<String>(url);
+    } catch (e) {
+      final mirror = _toJsDelivr(url);
+      if (mirror != null) {
+        debugPrint('[SourceManager] 直连失败，尝试镜像: $mirror');
+        return await dio.get<String>(mirror);
+      }
+      rethrow;
+    }
+  }
 
   @override
   void dispose() {
@@ -55,7 +88,7 @@ class _SourceManagerPageState extends ConsumerState<SourceManagerPage> {
         connectTimeout: const Duration(seconds: 15),
         receiveTimeout: const Duration(seconds: 30),
       ));
-      final response = await dio.get<String>(url);
+      final response = await _getScript(dio, url);
       if (response.statusCode != 200) {
         throw Exception('HTTP ${response.statusCode}');
       }
