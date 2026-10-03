@@ -459,7 +459,7 @@ class SourceEngine {
         form.forEach((k, v) {
           final ek = Uri.encodeQueryComponent(k.toString());
           final ev = Uri.encodeQueryComponent(v?.toString() ?? '');
-          parts.add(ek + '=' + ev);
+          parts.add('$ek=$ev');
         });
         data = parts.join('&');
         headers.putIfAbsent(
@@ -482,10 +482,7 @@ class SourceEngine {
       final responseJson = jsonEncode({
         'statusCode': response.statusCode,
         'headers': {
-          for (final e in response.headers.map.entries)
-            e.key: e.value is List
-                ? (e.value as List).join(', ')
-                : e.value.toString(),
+          for (final e in response.headers.map.entries) e.key: e.value.join(', '),
         },
         'body': response.data?.toString() ?? '',
       });

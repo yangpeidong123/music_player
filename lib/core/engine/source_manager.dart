@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'source_engine.dart';
 
 /// 音源管理器 — 管理多个已加载的音源
@@ -42,7 +43,7 @@ class SourceManager {
       if (_activeSourceId == null) {
         _activeSourceId = sourceId;
       }
-      print('[SourceManager] 音源已添加: ${engine.meta!.name} (id=$sourceId)');
+      debugPrint('[SourceManager] 音源已添加: ${engine.meta!.name} (id=$sourceId)');
     } else {
       engine.dispose();
       throw Exception('音源加载失败');
