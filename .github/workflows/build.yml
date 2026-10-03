@@ -16,6 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # LX 源协议桥接回归验证：与 Node 官方 crypto 交叉对比 md5/AES/RSA/buffer/request
+      - name: Verify LX bridge
+        run: node tool/verify_bridge.js
+
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:

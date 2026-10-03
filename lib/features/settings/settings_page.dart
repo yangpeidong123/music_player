@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../shared/providers/providers.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
+
+  static final Future<PackageInfo> _pkgInfo = PackageInfo.fromPlatform();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -99,7 +102,14 @@ class SettingsPage extends ConsumerWidget {
           ListTile(
             leading: const Icon(Icons.info),
             title: const Text('关于应用'),
-            subtitle: const Text('v1.0.0'),
+            subtitle: FutureBuilder<PackageInfo>(
+              future: _pkgInfo,
+              builder: (context, snap) => Text(
+                snap.hasData
+                    ? 'v${snap.data!.version}+${snap.data!.buildNumber}'
+                    : '加载中…',
+              ),
+            ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _showAboutDialog(context),
           ),
@@ -232,11 +242,13 @@ class SettingsPage extends ConsumerWidget {
     );
   }
 
-  void _showAboutDialog(BuildContext context) {
+  Future<void> _showAboutDialog(BuildContext context) async {
+    final info = await _pkgInfo;
+    if (!context.mounted) return;
     showAboutDialog(
       context: context,
       applicationName: '音乐播放器',
-      applicationVersion: 'v1.0.0',
+      applicationVersion: 'v${info.version}+${info.buildNumber}',
       applicationLegalese: '© 2026 yangpeidong123',
       children: const [
         SizedBox(height: 12),
@@ -245,11 +257,13 @@ class SettingsPage extends ConsumerWidget {
     );
   }
 
-  void _showLicensePage(BuildContext context) {
+  Future<void> _showLicensePage(BuildContext context) async {
+    final info = await _pkgInfo;
+    if (!context.mounted) return;
     showLicensePage(
       context: context,
       applicationName: '音乐播放器',
-      applicationVersion: 'v1.0.0',
+      applicationVersion: 'v${info.version}+${info.buildNumber}',
     );
   }
 

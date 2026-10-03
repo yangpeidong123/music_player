@@ -170,6 +170,7 @@ class SourceEngine {
   // 状态管理
   final _initCompleter = Completer<Map<String, dynamic>?>();
   final _requestCompleters = <String, Completer<dynamic>>{};
+  final _reqCancelTokens = <String, CancelToken>{};
 
   // 资源管理
   Timer? _initTimeoutTimer;
@@ -202,6 +203,8 @@ class SourceEngine {
     _js.onMessage('lx_buffer', _handleBufferMessage);
     // 接收 lx_call 响应
     _js.onMessage('lx_call_response', _handleCallResponse);
+    // 接收源发起的请求取消（lx.request 的 abort 返回函数）
+    _js.onMessage('lx_request_abort', _handleRequestAbort);
   }
 
   /// 注入 lx polyfill
@@ -414,34 +417,92 @@ class SourceEngine {
     }
   }
 
-  Future<void> _doHttpRequest(String url, Map<String, dynamic> options, String uuid) async {
+  /// 源通过 lx.request 返回的 abort 函数取消请求
+  void _handleRequestAbort(dynamic args) {
     try {
+      final uuid = args[0] as String?;
+      if (uuid != null) {
+        _reqCancelTokens.remove(uuid)?.cancel();
+      }
+    } catch (e) {
+      debugPrint('[SourceEngine] request abort error: $e');
+    }
+  }
+
+  Future<void> _doHttpRequest(String url, Map<String, dynamic> options, String uuid) async {
+    final token = CancelToken();
+    _reqCancelTokens[uuid] = token;
+    try {
+      final method = (options['method'] as String?)?.toUpperCase() ?? 'GET';
+      // 与官方一致：超时上限 60s
+      final timeoutMs = ((options['timeout'] as num?)?.toInt() ?? 60000).clamp(1, 60000).toInt();
+
+      // headers：官方给源的是字符串字典（Dio 的多值 List 转为逗号连接）
+      final rawHeaders = options['headers'] as Map? ?? {};
+      final headers = <String, dynamic>{
+        for (final e in rawHeaders.entries)
+          e.key.toString(): e.value is List
+              ? (e.value as List).join(', ')
+              : e.value.toString(),
+      };
+
+      // body 形态：formData（multipart）> form（urlencoded）> 原始 body
+      dynamic data = options['body'];
+      final form = options['form'];
+      final formDataMap = options['formData'];
+      if (formDataMap is Map && formDataMap.isNotEmpty) {
+        data = FormData.fromMap({
+          for (final e in formDataMap.entries) e.key.toString(): e.value,
+        });
+      } else if (form is Map && form.isNotEmpty) {
+        final parts = <String>[];
+        form.forEach((k, v) {
+          final ek = Uri.encodeQueryComponent(k.toString());
+          final ev = Uri.encodeQueryComponent(v?.toString() ?? '');
+          parts.add(ek + '=' + ev);
+        });
+        data = parts.join('&');
+        headers.putIfAbsent(
+            'content-type', () => 'application/x-www-form-urlencoded; charset=utf-8');
+      }
+
       final response = await _dio.request(
         url,
-        data: options['body'],
+        data: data,
+        cancelToken: token,
         options: Options(
-          method: (options['method'] as String?)?.toUpperCase() ?? 'GET',
-          headers: Map<String, dynamic>.from(options['headers'] as Map? ?? {}),
-          sendTimeout: Duration(milliseconds: options['timeout'] as int? ?? 60000),
-          receiveTimeout: Duration(milliseconds: options['timeout'] as int? ?? 60000),
+          method: method,
+          headers: headers,
+          sendTimeout: Duration(milliseconds: timeoutMs),
+          receiveTimeout: Duration(milliseconds: timeoutMs),
           responseType: ResponseType.plain,
           validateStatus: (_) => true,
         ),
       );
       final responseJson = jsonEncode({
         'statusCode': response.statusCode,
-        'headers': response.headers.map,
-        'body': response.data.toString(),
+        'headers': {
+          for (final e in response.headers.map.entries)
+            e.key: e.value is List
+                ? (e.value as List).join(', ')
+                : e.value.toString(),
+        },
+        'body': response.data?.toString() ?? '',
       });
       _js.sendMessage(
         channelName: 'lx_request_response',
         args: [uuid, 'null', responseJson],
       );
     } catch (e) {
-      _js.sendMessage(
-        channelName: 'lx_request_response',
-        args: [uuid, e.toString(), 'null'],
-      );
+      if (e is! DioException || e.type != DioExceptionType.cancel) {
+        _js.sendMessage(
+          channelName: 'lx_request_response',
+          args: [uuid, e.toString(), 'null'],
+        );
+      }
+      // 取消场景：JS 侧已删除回调，无需回包
+    } finally {
+      _reqCancelTokens.remove(uuid);
     }
   }
 
@@ -573,6 +634,10 @@ class SourceEngine {
       action: RequestAction.musicUrl,
       info: {'type': quality, 'musicInfo': music.toJson()},
     );
+    // 官方移动端：handler 直接返回 URL 字符串；桌面风格：返回 {url, header}
+    if (result is String) {
+      return result.isEmpty ? null : (url: result, headers: const <String, String>{});
+    }
     if (result is! Map) return null;
     final url = result['url'];
     if (url is! String || url.isEmpty) return null;
@@ -602,8 +667,13 @@ class SourceEngine {
       action: RequestAction.musicLyric,
       info: {'musicInfo': music.toJson()},
     );
+    if (result is String) return result;
     if (result is! Map) return null;
-    return (result['lyric'] ?? result['data']?['lyric']) as String?;
+    final direct = result['lyric'];
+    if (direct is String) return direct;
+    final data = result['data'];
+    if (data is Map && data['lyric'] is String) return data['lyric'] as String;
+    return null;
   }
 
   Future<String?> getMusicPic({
@@ -615,8 +685,10 @@ class SourceEngine {
       action: RequestAction.musicPic,
       info: {'musicInfo': music.toJson()},
     );
+    if (result is String) return result.isEmpty ? null : result;
     if (result is! Map) return null;
-    return (result['url'] ?? result['data']) as String?;
+    final v = result['url'] ?? result['data'];
+    return v is String && v.isNotEmpty ? v : null;
   }
 
   Future<List<MusicInfo>> search({
@@ -658,6 +730,10 @@ class SourceEngine {
     _initTimeoutTimer?.cancel();
     _pumpTimer?.cancel();
     _pumpTimer = null;
+    for (final t in _reqCancelTokens.values) {
+      t.cancel();
+    }
+    _reqCancelTokens.clear();
     // 取消所有 pending 请求
     for (final c in _requestCompleters.values) {
       if (!c.isCompleted) {

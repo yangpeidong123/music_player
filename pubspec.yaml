@@ -1,7 +1,7 @@
 name: music_player
 description: "支持导入洛雪音源的跨平台音乐播放器 - Material 3 跨平台"
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
