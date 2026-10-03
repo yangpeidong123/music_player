@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/engine/source_engine.dart';
@@ -37,6 +38,31 @@ final sourceListProvider = FutureProvider<List<SourceEntry>>((ref) async {
   final db = ref.watch(databaseProvider);
   return db.getAllSources();
 });
+
+/// 启动时把数据库中已启用的音源恢复进 SourceManager 并激活最新的一个。
+/// 此前导入只写库 + 运行时，重启后 SourceManager 为空，
+/// 导致搜索/播放一直报「未加载音源」——本 Provider 负责恢复。
+final sourcesBootstrapProvider = FutureProvider<void>((ref) async {
+  final db = ref.watch(databaseProvider);
+  final manager = ref.watch(sourceManagerProvider);
+  final entries = await db.getAllSources();
+  String? firstId;
+  for (final e in entries.where((e) => e.enabled)) {
+    final script = await db.getSourceScript(e.id);
+    if (script == null || script.isEmpty) continue;
+    try {
+      final id = await manager.addSource(script, id: e.id);
+      firstId ??= id;
+      debugPrint('[Bootstrap] 已恢复音源「${e.name}」(id=$id)');
+    } catch (err) {
+      debugPrint('[Bootstrap] 音源恢复失败「${e.name}」: $err');
+    }
+  }
+  if (firstId != null) {
+    ref.read(activeEngineIdProvider.notifier).state = firstId;
+  }
+});
+
 
 /// 播放器实例 —— 常驻单例。
 /// 关键：不 watch 任何音源 Provider，否则切换/导入/删除音源会导致

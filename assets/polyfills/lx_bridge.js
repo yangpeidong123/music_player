@@ -23,6 +23,112 @@
   const MAX_CONCURRENT_REQUESTS = 16;
   const BUFFER_SIZE_LIMIT = 50 * 1024 * 1024; // 50MB
 
+  // ——— Web API polyfills（QuickJS 没有浏览器内置的 btoa/atob/TextEncoder 等） ———
+  const __B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+  if (typeof globalThis.btoa !== 'function') {
+    globalThis.btoa = function (input) {
+      const s = String(input);
+      let out = '';
+      for (let i = 0; i < s.length; i += 3) {
+        const c1 = s.charCodeAt(i);
+        const has2 = i + 1 < s.length;
+        const has3 = i + 2 < s.length;
+        const c2 = has2 ? s.charCodeAt(i + 1) : 0;
+        const c3 = has3 ? s.charCodeAt(i + 2) : 0;
+        out += __B64.charAt(c1 >> 2);
+        out += __B64.charAt(((c1 & 3) << 4) | (c2 >> 4));
+        out += has2 ? __B64.charAt(((c2 & 15) << 2) | (c3 >> 6)) : '=';
+        out += has3 ? __B64.charAt(c3 & 63) : '=';
+      }
+      return out;
+    };
+  }
+
+  if (typeof globalThis.atob !== 'function') {
+    globalThis.atob = function (input) {
+      const s = String(input).replace(/=+$/, '');
+      let out = '';
+      for (let i = 0; i < s.length; i += 4) {
+        const e1 = __B64.indexOf(s.charAt(i));
+        const e2 = __B64.indexOf(s.charAt(i + 1));
+        const e3 = __B64.indexOf(s.charAt(i + 2));
+        const e4 = __B64.indexOf(s.charAt(i + 3));
+        if (e1 < 0 || e2 < 0) throw new Error('Invalid base64 string');
+        out += String.fromCharCode((e1 << 2) | (e2 >> 4));
+        if (e3 >= 0) out += String.fromCharCode(((e2 & 15) << 4) | (e3 >> 2));
+        if (e3 >= 0 && e4 >= 0) out += String.fromCharCode(((e3 & 3) << 6) | e4);
+      }
+      return out;
+    };
+  }
+
+  // flutter_js 只提供 setTimeout，没有 clearTimeout / setInterval / clearInterval
+  if (typeof globalThis.clearTimeout !== 'function') {
+    // 定时器触发时会先检查 uuid 是否还在回调表里（已被删除则 no-op），所以空实现是安全的
+    globalThis.clearTimeout = function () { return undefined; };
+  }
+  if (typeof globalThis.setInterval !== 'function') {
+    let __intervalId = 0;
+    const __intervals = {};
+    globalThis.setInterval = function (fn, ms) {
+      const id = ++__intervalId;
+      __intervals[id] = true;
+      const tick = function () {
+        if (!__intervals[id]) return;
+        try { fn(); } catch (e) { if (typeof console !== 'undefined') console.error('setInterval callback error:', e); }
+        globalThis.setTimeout(tick, ms || 0);
+      };
+      globalThis.setTimeout(tick, ms || 0);
+      return id;
+    };
+    globalThis.clearInterval = function (id) { delete __intervals[id]; };
+  }
+
+  if (typeof globalThis.TextEncoder !== 'function') {
+    globalThis.TextEncoder = function () {
+      this.encode = function (str) {
+        const bin = unescape(encodeURIComponent(String(str)));
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        return arr;
+      };
+    };
+  }
+  if (typeof globalThis.TextDecoder !== 'function') {
+    globalThis.TextDecoder = function () {
+      this.decode = function (bytes) {
+        const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+        let bin = '';
+        for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]);
+        try { return decodeURIComponent(escape(bin)); } catch (e) { return bin; }
+      };
+    };
+  }
+
+  if (typeof globalThis.crypto !== 'object' || globalThis.crypto === null ||
+      typeof globalThis.crypto.getRandomValues !== 'function') {
+    let __seed = ((Date.now() ^ (Math.floor(Math.random() * 0x100000000))) >>> 0) || 0x9e3779b9;
+    const __next = function () {
+      __seed ^= __seed << 13; __seed >>>= 0;
+      __seed ^= __seed >>> 17;
+      __seed ^= __seed << 5; __seed >>>= 0;
+      return __seed;
+    };
+    if (typeof globalThis.crypto !== 'object' || globalThis.crypto === null) {
+      globalThis.crypto = {};
+    }
+    globalThis.crypto.getRandomValues = function (arr) {
+      const bytesPer = arr.BYTES_PER_ELEMENT || 1;
+      for (let i = 0; i < arr.length; i++) {
+        let v = 0;
+        for (let b = 0; b < bytesPer; b++) v = ((v << 8) | (__next() & 0xff)) >>> 0;
+        arr[i] = v;
+      }
+      return arr;
+    };
+  }
+
   // ——— UUID 生成 ———
   let __asyncCallId = 0;
   const __asyncCallbacks = {}; // uuid -> { resolve, reject, timeout }
@@ -51,6 +157,11 @@
   // 定义该全局函数来接收 Dart 回传的响应。
   // 注意：lx_call_response 是 JS->Dart（callRequest 用 sendMessage 发给 Dart 的
   // _handleCallResponse），不在此处理。
+  const __ORIGINAL_DART_DISPATCH =
+    typeof globalThis.DART_TO_QUICKJS_CHANNEL_sendMessage === 'function'
+      ? globalThis.DART_TO_QUICKJS_CHANNEL_sendMessage
+      : null;
+
   globalThis.DART_TO_QUICKJS_CHANNEL_sendMessage = function(channel, argsJson) {
     try {
       const args = typeof argsJson === 'string' ? JSON.parse(argsJson) : argsJson;
@@ -76,7 +187,11 @@
           break;
         }
         default:
-          console.warn('[lx_bridge] Unknown channel:', channel);
+          if (__ORIGINAL_DART_DISPATCH) {
+            __ORIGINAL_DART_DISPATCH(channel, argsJson);
+          } else {
+            console.warn('[lx_bridge] Unknown channel:', channel);
+          }
       }
     } catch (e) {
       console.error('[lx_bridge] DART_TO_QUICKJS_CHANNEL_sendMessage error:', e);
@@ -85,6 +200,7 @@
 
   // ——— 工具函数 ———
   function safeJsonStringify(obj) {
+    if (obj === undefined) return 'null';
     try {
       return JSON.stringify(obj);
     } catch (e) {

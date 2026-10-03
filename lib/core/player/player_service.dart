@@ -285,17 +285,22 @@ class PlayerService {
     }
 
     try {
-      final url = await _sourceEngine!.getMusicUrl(
+      final detail = await _sourceEngine!.getMusicUrl(
         source: music.source,
         music: music,
         quality: _currentQuality,
       );
-      if (url == null || url.isEmpty) {
+      if (detail == null || detail.url.isEmpty) {
         _setError('无法获取播放链接');
         _tryNext();
         return;
       }
-      await _player.setUrl(url);
+      await _player.setAudioSource(
+        AudioSource.uri(
+          Uri.parse(detail.url),
+          headers: detail.headers.isEmpty ? null : detail.headers,
+        ),
+      );
       await _player.play();
       // 异步加载歌词
       _loadLyrics();

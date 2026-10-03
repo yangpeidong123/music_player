@@ -52,6 +52,8 @@ class MusicPlayerApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // 启动时恢复数据库中的音源（见 sourcesBootstrapProvider）
+    ref.watch(sourcesBootstrapProvider);
     final settings = ref.watch(appSettingsProvider);
     final seed = Color(settings.themeColor);
 

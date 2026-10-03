@@ -173,10 +173,11 @@ class SourceEngine {
 
   // 资源管理
   Timer? _initTimeoutTimer;
+  Timer? _pumpTimer;
 
   // 配置
   static const Duration _initTimeout = Duration(seconds: 10);
-  static const Duration _requestTimeout = Duration(seconds: 30);
+  static const Duration _requestTimeout = Duration(seconds: 60);
 
   SourceEngine({JavascriptRuntime? jsRuntime, Dio? dio})
       : _js = jsRuntime ?? getJavascriptRuntime(forceJavascriptCoreOnAndroid: false),
@@ -206,7 +207,19 @@ class SourceEngine {
   /// 注入 lx polyfill
   Future<void> _injectPolyfill() async {
     final polyfill = await rootBundle.loadString('assets/polyfills/lx_bridge.js');
-    _js.evaluate(polyfill);
+    final res = _js.evaluate(polyfill);
+    if (res.isError) {
+      throw SourceLoadException('Polyfill evaluate error: ${res.stringResult}');
+    }
+  }
+
+  /// 泵一次 QuickJS 微任务队列（Promise 续体在此执行）。
+  void _pumpJobs() {
+    try {
+      _js.executePendingJob();
+    } catch (e) {
+      debugPrint('[SourceEngine] executePendingJob error: $e');
+    }
   }
 
   /// 加载音源脚本
@@ -216,6 +229,12 @@ class SourceEngine {
     }
 
     _setupBridge();
+
+    // QuickJS 的 Promise 微任务队列需要显式泵（executePendingJob），
+    // 否则音源脚本里所有 await/then 的续体永远不会执行：
+    // lx.send('inited') 收不到、lx.request 回调不触发、callRequest 永远超时。
+    _pumpTimer?.cancel();
+    _pumpTimer = Timer.periodic(const Duration(milliseconds: 16), (_) => _pumpJobs());
 
     try {
       await _injectPolyfill();
@@ -244,23 +263,26 @@ class SourceEngine {
 
     // 执行音源脚本
     debugPrint('[SourceEngine] 正在执行音源脚本...');
-    try {
-      _js.evaluate(script);
-    } catch (err) {
-      throw SourceLoadException('Script execution failed', err);
+    final evalRes = _js.evaluate(script);
+    if (evalRes.isError) {
+      throw SourceLoadException('Script execution failed: ${evalRes.stringResult}');
     }
+    // 立刻泵一次：同步初始化的音源可能已在微任务里发出 inited
+    _pumpJobs();
 
     // 等待 init 事件
     try {
       final initResult = await _initCompleter.future;
       _initTimeoutTimer?.cancel();
 
-      if (initResult != null) {
+      if (initResult != null && initResult['sources'] is Map && (initResult['sources'] as Map).isNotEmpty) {
         capabilities = SourceCapabilities.fromJson(initResult);
         _inited = true;
         debugPrint('[SourceEngine] ✅ 初始化成功: ${capabilities!.availablePlatforms}');
       } else {
-        debugPrint('[SourceEngine] ⚠️ 初始化超时，音源可能仍可用');
+        // 即使 inited 数据缺失/超时也放行请求（降级模式），避免整个音源永久不可用
+        _inited = true;
+        debugPrint('[SourceEngine] ⚠️ 初始化数据缺失或超时，进入降级模式（无能力声明）');
       }
     } catch (e) {
       throw SourceLoadException('Init handler failed', e);
@@ -305,8 +327,15 @@ class SourceEngine {
       final dataJson = args[1] as String?;
       switch (eventName) {
         case 'inited':
-          if (dataJson != null && !_initCompleter.isCompleted) {
-            final data = jsonDecode(dataJson) as Map<String, dynamic>;
+          if (!_initCompleter.isCompleted) {
+            Map<String, dynamic>? data;
+            try {
+              if (dataJson != null && dataJson != 'null') {
+                data = jsonDecode(dataJson) as Map<String, dynamic>;
+              }
+            } catch (_) {
+              data = null;
+            }
             _initCompleter.complete(data);
           }
           break;
@@ -490,7 +519,8 @@ class SourceEngine {
     if (!_inited) {
       throw SourceRequestException(action, source, 'Source not initialized');
     }
-    if (!capabilities!.supports(source)) {
+    final caps = capabilities;
+    if (caps != null && caps.sources.isNotEmpty && !caps.supports(source)) {
       throw SourceRequestException(action, source, 'Source does not support platform $source');
     }
 
@@ -502,7 +532,7 @@ class SourceEngine {
 
     // 调用 JS 端注册的 handler
     final escapedJson = _escapeJsString(requestJson);
-    _js.evaluate("""
+    final callRes = _js.evaluate("""
       (async () => {
         try {
           if (typeof globalThis.__lxRequestHandler === 'function') {
@@ -517,6 +547,12 @@ class SourceEngine {
       })();
       1
     """);
+    if (callRes.isError) {
+      _requestCompleters.remove(uuid);
+      throw SourceRequestException(action, source, 'JS call failed: ${callRes.stringResult}');
+    }
+    // 异步 handler 的续体靠 pump 定时器执行；这里也立即泵一次以降低延迟
+    _pumpJobs();
 
     try {
       return await completer.future.timeout(_requestTimeout);
@@ -526,7 +562,8 @@ class SourceEngine {
     }
   }
 
-  Future<String?> getMusicUrl({
+  /// 获取播放地址（含音源附带的请求头，部分平台要求 Referer/UA 才能播放）
+  Future<({String url, Map<String, String> headers})?> getMusicUrl({
     required String source,
     required MusicInfo music,
     String quality = '128k',
@@ -537,7 +574,23 @@ class SourceEngine {
       info: {'type': quality, 'musicInfo': music.toJson()},
     );
     if (result is! Map) return null;
-    return result['url'] as String?;
+    final url = result['url'];
+    if (url is! String || url.isEmpty) return null;
+    Map<String, String> headers = const {};
+    var raw = result['header'] ?? result['headers'];
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        raw = jsonDecode(raw);
+      } catch (_) {
+        raw = null;
+      }
+    }
+    if (raw is Map) {
+      headers = {
+        for (final e in raw.entries) e.key.toString(): e.value.toString(),
+      };
+    }
+    return (url: url, headers: headers);
   }
 
   Future<String?> getMusicLyric({
@@ -603,6 +656,8 @@ class SourceEngine {
 
   void dispose() {
     _initTimeoutTimer?.cancel();
+    _pumpTimer?.cancel();
+    _pumpTimer = null;
     // 取消所有 pending 请求
     for (final c in _requestCompleters.values) {
       if (!c.isCompleted) {

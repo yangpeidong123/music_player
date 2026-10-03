@@ -15,16 +15,30 @@ class SourceManager {
   SourceEngine? get activeEngine =>
       _activeSourceId != null ? _engines[_activeSourceId] : null;
 
+  /// 当前活跃音源 id（供 Provider 层同步用）
+  String? get activeId => _activeSourceId;
+
   /// 添加音源
   Future<String> addSource(String script, {String? id}) async {
     final sourceId = id ?? DateTime.now().millisecondsSinceEpoch.toString();
     final engine = SourceEngine();
-    final success = await engine.loadFromScript(script);
+    bool success = false;
+    try {
+      success = await engine.loadFromScript(script);
+    } catch (e) {
+      engine.dispose();
+      rethrow;
+    }
 
     if (success) {
+      // 重复导入同一 id 时先释放旧引擎，避免旧 QuickJS 运行时泄漏
+      _engines[sourceId]?.dispose();
       _engines[sourceId] = engine;
       _metas[sourceId] = engine.meta!;
-      _capabilities[sourceId] = engine.capabilities!;
+      final caps = engine.capabilities;
+      if (caps != null) {
+        _capabilities[sourceId] = caps;
+      }
       if (_activeSourceId == null) {
         _activeSourceId = sourceId;
       }
@@ -47,18 +61,23 @@ class SourceManager {
     final sourceId = DateTime.now().millisecondsSinceEpoch.toString();
     _engines[sourceId] = engine;
     _metas[sourceId] = engine.meta!;
-    _capabilities[sourceId] = engine.capabilities!;
+    final caps = engine.capabilities;
+    if (caps != null) {
+      _capabilities[sourceId] = caps;
+    }
     if (_activeSourceId == null) {
       _activeSourceId = sourceId;
     }
     return sourceId;
   }
 
-  /// 切换活跃音源
-  void setActiveSource(String id) {
+  /// 切换活跃音源（返回是否成功：仅已加载的音源可激活）
+  bool setActiveSource(String id) {
     if (_engines.containsKey(id)) {
       _activeSourceId = id;
+      return true;
     }
+    return false;
   }
 
   /// 移除音源

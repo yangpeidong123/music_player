@@ -70,10 +70,14 @@ class _SourceManagerPageState extends ConsumerState<SourceManagerPage> {
         throw Exception('脚本缺少 @name 或 @version 元数据');
       }
 
-      // 验证可加载
+      // 验证可加载（无论如何都要释放验证用引擎，避免 QuickJS 运行时泄漏）
       final engine = SourceEngine();
-      final success = await engine.loadFromScript(script);
-      engine.dispose();
+      bool success = false;
+      try {
+        success = await engine.loadFromScript(script);
+      } finally {
+        engine.dispose();
+      }
       if (!success) {
         throw Exception('音源脚本执行失败，可能不兼容');
       }
@@ -94,6 +98,7 @@ class _SourceManagerPageState extends ConsumerState<SourceManagerPage> {
 
       // 添加到运行时
       await ref.read(sourceManagerProvider).addSource(script, id: sourceId);
+      _syncActiveSource();
       ref.invalidate(sourceListProvider);
 
       if (mounted) {
@@ -106,6 +111,30 @@ class _SourceManagerPageState extends ConsumerState<SourceManagerPage> {
       _showSnack('导入失败: $e', isError: true);
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// 让 activeEngineIdProvider 与 SourceManager 保持一致
+  /// （即使 id 未变，如重新导入同 id 音源导致引擎实例被替换，也强制通知）。
+  void _syncActiveSource() {
+    final manager = ref.read(sourceManagerProvider);
+    final target = manager.activeId;
+    final notifier = ref.read(activeEngineIdProvider.notifier);
+    if (notifier.state == target) {
+      if (target == null) return;
+      notifier.state = null;
+    }
+    notifier.state = target;
+  }
+
+  /// 点击已导入音源 = 设为当前活跃音源
+  void _activateSource(dynamic s) {
+    final manager = ref.read(sourceManagerProvider);
+    if (manager.setActiveSource(s.id)) {
+      _syncActiveSource();
+      _showSnack('已切换到「${s.name}」', isError: false);
+    } else {
+      _showSnack('音源未加载，请先启用「${s.name}」', isError: true);
     }
   }
 
@@ -287,7 +316,22 @@ class _SourceManagerPageState extends ConsumerState<SourceManagerPage> {
             Switch(
               value: s.enabled,
               onChanged: (v) async {
-                await ref.read(databaseProvider).setSourceEnabled(s.id, v);
+                final db = ref.read(databaseProvider);
+                final manager = ref.read(sourceManagerProvider);
+                await db.setSourceEnabled(s.id, v);
+                if (v) {
+                  final script = await db.getSourceScript(s.id);
+                  if (script != null && script.isNotEmpty) {
+                    try {
+                      await manager.addSource(script, id: s.id);
+                    } catch (e) {
+                      _showSnack('启用失败: $e', isError: true);
+                    }
+                  }
+                } else {
+                  manager.removeSource(s.id);
+                }
+                _syncActiveSource();
                 ref.invalidate(sourceListProvider);
               },
             ),
@@ -297,7 +341,8 @@ class _SourceManagerPageState extends ConsumerState<SourceManagerPage> {
             ),
           ],
         ),
-        onTap: () {
+        onTap: () => _activateSource(s),
+        onLongPress: () {
           if (s.url != null) {
             _urlController.text = s.url!;
           }
@@ -318,6 +363,8 @@ class _SourceManagerPageState extends ConsumerState<SourceManagerPage> {
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
               await ref.read(databaseProvider).deleteSource(id);
+              ref.read(sourceManagerProvider).removeSource(id);
+              _syncActiveSource();
               ref.invalidate(sourceListProvider);
               if (mounted) Navigator.pop(ctx);
               _showSnack('已删除音源', isError: false);
