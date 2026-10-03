@@ -241,8 +241,9 @@ class SourceEngine {
 
     try {
       await _injectPolyfill();
+      debugPrint('[SourceEngine] polyfill 注入成功');
     } catch (e) {
-      throw SourceLoadException('Failed to inject polyfill', e);
+      throw SourceLoadException('Failed to inject polyfill: $e', e);
     }
 
     // 解析元数据

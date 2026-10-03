@@ -130,6 +130,15 @@
     };
   }
 
+  // ——— 安全日志（某些宿主环境可能没有 console） ———
+  function __log(level, args) {
+    try {
+      if (typeof console !== 'undefined' && console && typeof console[level] === 'function') {
+        console[level].apply(console, args);
+      }
+    } catch (_) {}
+  }
+
   // ——— UUID / 回调表 ———
   let __asyncCallId = 0;
   const __asyncCallbacks = {}; // uuid -> { resolve, reject, timeout }
@@ -144,11 +153,11 @@
       try {
         sendMessage(channel, JSON.stringify(args));
       } catch (e) {
-        console.error('[lx_bridge] sendMessage failed:', e);
+        __log('error', ['[lx_bridge] sendMessage failed:', e]);
       }
     };
   } else {
-    console.error('[lx_bridge] No native sendMessage available');
+    __log('error', ['[lx_bridge] No native sendMessage available']);
     __NATIVE_sendMessage = function() {};
   }
 
@@ -190,11 +199,11 @@
           if (__ORIGINAL_DART_DISPATCH) {
             __ORIGINAL_DART_DISPATCH(channel, argsJson);
           } else {
-            console.warn('[lx_bridge] Unknown channel:', channel);
+            __log('warn', ['[lx_bridge] Unknown channel:', channel]);
           }
       }
     } catch (e) {
-      console.error('[lx_bridge] DART_TO_QUICKJS_CHANNEL_sendMessage error:', e);
+      __log('error', ['[lx_bridge] DART_TO_QUICKJS_CHANNEL_sendMessage error:', e]);
     }
   };
 
@@ -341,6 +350,7 @@
   };
   const __SBOX = new Uint8Array(256);
   const __INV_SBOX = new Uint8Array(256);
+  try {
   (function initSbox() {
     for (let x = 0; x < 256; x++) {
       let inv = 0;
@@ -359,6 +369,9 @@
       __INV_SBOX[s & 0xff] = x;
     }
   })();
+  } catch (e) {
+    __log('error', ['[lx_bridge] sbox init failed (aes degraded):', e]);
+  }
   const __RCON = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
 
   function __expandKey128(key) {
@@ -509,9 +522,9 @@
   function __derReadInt(bytes, pos, end) {
     if (bytes[pos.p++] !== 0x02) throw new Error('DER: expected INTEGER');
     const len = __derReadLen(bytes, pos);
-    let v = 0n;
+    let v = BigInt(0);
     for (let i = 0; i < len; i++) {
-      v = (v << 8n) | BigInt(bytes[pos.p++]);
+      v = (v << BigInt(8)) | BigInt(bytes[pos.p++]);
     }
     if (pos.p > end) throw new Error('DER: out of range');
     return v;
@@ -534,13 +547,13 @@
     __derReadLen(der, pos);
     const n = __derReadInt(der, pos, innerEnd);
     const e = __derReadInt(der, pos, innerEnd);
-    if (n <= 0n || e <= 0n) throw new Error('DER: bad key');
+    if (n <= BigInt(0) || e <= BigInt(0)) throw new Error('DER: bad key');
     return { n: n, e: e };
   }
   function __bytesToBig(bytes) {
     let h = '';
     for (let i = 0; i < bytes.length; i++) h += bytes[i].toString(16).padStart(2, '0');
-    return h.length ? BigInt('0x' + h) : 0n;
+    return h.length ? BigInt('0x' + h) : BigInt(0);
   }
   function __bigToBytes(x, size) {
     let h = x.toString(16);
@@ -553,12 +566,14 @@
     return out;
   }
   function __modPow(base, exp, mod) {
-    let result = 1n;
+    let result = BigInt(1);
+    const ZERO = BigInt(0);
+    const ONE = BigInt(1);
     base %= mod;
-    while (exp > 0n) {
-      if (exp & 1n) result = (result * base) % mod;
+    while (exp > ZERO) {
+      if (exp & ONE) result = (result * base) % mod;
       base = (base * base) % mod;
-      exp >>= 1n;
+      exp = exp >> ONE;
     }
     return result;
   }
@@ -697,6 +712,7 @@
         // 官方：key 为 PUBLIC KEY PEM（或裸 base64 DER），RSA/ECB/NoPadding；失败返回空 Uint8Array
         const empty = new Uint8Array(0);
         try {
+          if (typeof BigInt !== 'function') return empty;
           if (typeof key !== 'string') throw new Error('Invalid RSA key');
           let b64 = key
             .replace(/-----BEGIN PUBLIC KEY-----/g, '')
@@ -806,8 +822,10 @@
   function __bitsOf(bigint) {
     let bits = 0;
     let v = bigint;
-    while (v > 0n) {
-      v >>= 1n;
+    const ZERO = BigInt(0);
+    const ONE = BigInt(1);
+    while (v > ZERO) {
+      v = v >> ONE;
       bits++;
     }
     return bits;
@@ -869,5 +887,5 @@
     },
   };
 
-  console.log('[lx_bridge] loaded (official-aligned)');
+  __log('log', ['[lx_bridge] loaded (official-aligned)']);
 })();

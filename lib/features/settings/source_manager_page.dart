@@ -139,7 +139,8 @@ class _SourceManagerPageState extends ConsumerState<SourceManagerPage> {
         _showSnack('音源「${meta.name}」导入成功', isError: false);
       }
     } on SourceLoadException catch (e) {
-      _showSnack('导入失败: ${e.message}', isError: true);
+      // 完整透出 message + cause（定位 polyfill/脚本错误必需）
+      _showSnack('导入失败: ${e.toString()}', isError: true);
     } catch (e) {
       _showSnack('导入失败: $e', isError: true);
     } finally {
