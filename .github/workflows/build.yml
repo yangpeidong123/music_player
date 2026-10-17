@@ -20,6 +20,11 @@ jobs:
       - name: Verify LX bridge
         run: node tool/verify_bridge.js
 
+      # 歌词引擎逻辑回归：test/lyrics_engine_test.dart 全部断言的 Node 保真移植
+      # （本地无 Flutter 工具链，逻辑层验证由 tool/verify 承担；平台层仍靠本 CI 的 flutter test）
+      - name: Verify lyrics engine
+        run: node tool/verify/verify_lyrics_engine.js
+
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
@@ -37,6 +42,7 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
+      # P0「测试转正」预注：基线测试全绿确认后由 lead 移除 continue-on-error（qa-integrator 交接说明）
       - name: Run tests
         continue-on-error: true
         run: flutter test
@@ -85,6 +91,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 与 android job 相同的 Node 逻辑门禁（歌词引擎 14 用例 + LX 桥接 28 用例）
+      - name: Verify lyrics engine
+        run: node tool/verify/verify_lyrics_engine.js
+
+      - name: Verify LX bridge
+        run: node tool/verify_bridge.js
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -96,6 +109,7 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
+      # P0「测试转正」预注：基线测试全绿确认后由 lead 移除 continue-on-error（qa-integrator 交接说明）
       - name: Run tests
         continue-on-error: true
         run: flutter test
@@ -157,6 +171,41 @@ jobs:
           name: windows-release
           path: windows-release.zip
           retention-days: 30
+
+  build-web:
+    name: Build Web (canary)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # 金丝雀 job：flutter_js 0.8.7 目前不支持 Web 平台（pub.dev 确认，仅
+    # Android/iOS/Windows/Linux/macOS），flutter build web 预计会因 dart:ffi
+    # 依赖编译失败。本 job 用于持续观测上游是否解锁 Web 支持——一旦上游
+    # 支持，此处变绿后可去掉 continue-on-error 并把 build-web 加入 release
+    # job 的 needs，作为正式发布目标（可选 GitHub Pages）。
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Build Web
+        run: flutter build web --release
+
+      - name: Upload web artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-release
+          path: build/web/
+          retention-days: 14
 
   release:
     name: Create Release
