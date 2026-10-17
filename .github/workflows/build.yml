@@ -42,9 +42,8 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
-      # P0「测试转正」预注：基线测试全绿确认后由 lead 移除 continue-on-error（qa-integrator 交接说明）
+      # 2026-10-17 转正：flutter test 已连续两次 CI 全绿（run 37113503242 / 39018118711），失败不再被吞掉
       - name: Run tests
-        continue-on-error: true
         run: flutter test
 
       - name: Create temp Flutter project
@@ -109,9 +108,8 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
-      # P0「测试转正」预注：基线测试全绿确认后由 lead 移除 continue-on-error（qa-integrator 交接说明）
+      # 2026-10-17 转正：flutter test 已连续两次 CI 全绿，失败不再被吞掉
       - name: Run tests
-        continue-on-error: true
         run: flutter test
 
       - name: Create temp Flutter project

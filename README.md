@@ -66,36 +66,33 @@ music_player/
 │   │   ├── home/                       # 首页
 │   │   ├── search/                     # 搜索（防抖 + 热搜 + 历史）
 │   │   ├── player/                     # 全屏播放器（旋转封面 + 歌词）
-│   │   ├── settings/                   # 设置 + 音源管理
+│   │   ├── settings/                   # 设置 + 音源管理 + 关于页 + 运行日志
 │   │   ├── playlist/                   # 歌单 CRUD
 │   │   ├── history/                    # 播放历史
 │   │   ├── favorites/                  # 收藏
-│   │   ├── local/                      # 本地音乐扫描
-│   │   └── lyrics/                      # 桌面歌词
+│   │   └── local/                      # 本地音乐扫描
 │   └── shared/
 │       ├── providers/                   # Riverpod Providers
+│       ├── services/                    # LogService（debugPrint 环形缓冲）
 │       ├── theme/                       # Material 3 主题
 │       ├── localizations.dart           # 本地化字符串
-│       ├── models.dart
-│       └── widgets/                     # 公共组件
+│       └── widgets/                     # 公共组件（迷你播放条等）
+│
+│   注：数据模型 MusicInfo 等定义在 lib/core/engine/source_engine.dart
+│   （曾计划的 lib/shared/models.dart 未创建，见 docs/DEV-NOTES.md §3）
 ├── assets/polyfills/
-│   └── lx_bridge.js                    # JS 沙箱 polyfill (220+ 行)
-├── test/                                # 单元测试
+│   └── lx_bridge.js                    # JS 沙箱 polyfill（LX 协议桥接）
+├── tool/
+│   ├── verify_bridge.js                # LX 协议 Node 门禁（与官方 crypto 交叉对比，28 用例）
+│   └── verify/                         # 纯逻辑层 Node 门禁（歌词引擎 14 用例等）
+├── test/                               # Dart 单元测试（CI 中 flutter test 执行）
 │   ├── lyrics_engine_test.dart
 │   └── source_engine_test.dart
-├── android/                             # Android 原生
-│   ├── app/
-│   │   ├── build.gradle.kts
-│   │   ├── proguard-rules.pro
-│   │   └── src/main/AndroidManifest.xml
-│   └── ...
-├── windows/                             # Windows 原生
-│   └── runner/
-│       ├── CMakeLists.txt
-│       ├── Runner.rc
-│       └── app.manifest
+│
+│   注：android/ windows/ 原生工程不入库 —— CI 在构建时用 flutter create
+│   生成临时工程并注入 lib/ 与 pubspec（见 .github/workflows/build.yml）
 └── .github/workflows/
-    └── build.yml                        # CI/CD: APK + EXE 自动构建
+    └── build.yml                        # CI/CD: 门禁 + APK + EXE 自动构建
 ```
 
 ## 🚀 快速开始
@@ -179,13 +176,22 @@ flutter test --coverage
 - 音乐信息序列化
 - 音质能力解析
 
+此外，仓库带 **Node 逻辑门禁**（本地无 Flutter SDK 时也可验证核心逻辑，CI 双端必跑）：
+
+```bash
+node tool/verify_bridge.js            # LX 协议桥接 28 用例
+node tool/verify/verify_lyrics_engine.js  # 歌词引擎 14 用例
+```
+
 ## 🔨 CI/CD
 
-GitHub Actions 自动构建 Android APK + Windows EXE：
+GitHub Actions 自动验证 + 构建 Android APK + Windows EXE：
 
 - **触发**：`push` 到 main / PR / 打 `v*` tag
+- **门禁**（双端必跑）：`node tool/verify_bridge.js`（LX 协议 28 用例）+ `node tool/verify/verify_lyrics_engine.js`（歌词引擎 14 用例）→ `flutter analyze` → `flutter test`
 - **构建**：Ubuntu (Android) + Windows runner
 - **发布**：打 tag 自动创建 GitHub Release
+- **观测位**：build-web 金丝雀 job（flutter_js 暂不支持 Web，上游解锁后转正）
 - **缓存**：下次构建用 `subosito/flutter-action` 缓存
 
 下载 Artifacts：https://github.com/yangpeidong123/music_player/actions
