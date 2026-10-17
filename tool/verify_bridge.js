@@ -98,6 +98,7 @@ const keySize = 2048 / 8;
 check('rsaEncrypt 对齐 node RSA_NO_PADDING', () => {
   const data = Buffer.alloc(keySize, 0);
   crypto.randomFillSync(data.subarray(0, 64)); // 前 64 字节随机，后面补 0（保证 < 模长）
+  data[0] &= 0x7f; // 清最高位：2048 位模数首位必然 > 0x7f，清位后恒 < 模长，消除随机顶满导致的偶发 "data too large"
   const out = lx.utils.crypto.aesEncrypt ? lx.utils.crypto.rsaEncrypt(data, pem) : null;
   assert.ok(out instanceof Uint8Array && out.length === keySize, 'out size');
   const expect = crypto.publicEncrypt({ key: pem, padding: crypto.constants.RSA_NO_PADDING }, data);
