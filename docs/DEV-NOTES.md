@@ -22,7 +22,11 @@
 | 3 | `lib/core/player/lyrics_engine.dart` | `parseMetadata` 正则 `\[(\w+)\s*:\s*([^\]]*)\]` 会把 `[00:05.00]` 的 `00` 误存为元数据键（`int.tryParse` 已兜底跳过，仅冗余写入） | P3 | 可忽略 |
 | 4 | `tool/verify_bridge.js` RSA 用例 | 随机数据可顶满模长 → `data too large for modulus`（flaky）；修复 `data[0] &= 0x7f` 于 10-05 完成、10-17 补推送（commit 0f08f468） | 已修复 | ✅ CI 实证 |
 | 5 | `flutter test` 曾 `continue-on-error: true` | 测试失败不可见 | P0 | ✅ 已于 2026-10-17 移除（test 两次 CI 全绿实证后转正） |
-| #6 | `pubspec.yaml` | `package_info_plus` 已声明未使用（about_page 现已使用，依赖健康） | — | ✅ 已消除 |
+| 6 | `pubspec.yaml` | `package_info_plus` 已声明未使用（about_page 现已使用，依赖健康） | — | ✅ 已消除 |
+| 7 | `pubspec.yaml` | `material_design_icons_flutter ^7.0.7296` 在 lib/ 零引用，可移除（architect 2026-10-18 审查补充） | P3 | 待清理任务 |
+| 8 | `lib/core/storage/source_storage.dart` | 60 行死代码：lib/ 内零 import，save() 与 source_manager_page._importFromUrl 的加载验证重复（architect 2026-10-18 审查补充） | P3 | 待清理任务 |
+| 9 | `lib/core/player/player_service.dart` `_tryNext()` | 重试语义 bug 预埋：`_maxRetries=3` 意为"整轮最多切 3 次"，但 `next()` → `_playAt` 每次切歌重置 `_retryCount=0`，连续失败实际无限跳曲；如需整轮语义须把计数移出 `_playAt`（architect 2026-10-18 审查补充） | P2 | 待修（建议随 P1 或独立小任务） |
+| 10 | `lyrics_engine.dart` | `[offset:±ms]` 标签被跳过未应用到时间轴，属歌词打磨点 | P4 | 排队 |
 
 ## 2.1 附：本地工具链不可用根因（记录给后续会话）
 
@@ -51,10 +55,11 @@
 ## 5. CI 实证记录
 
 | 日期 | commit | 结果 |
-|---|---|---|---|
+|---|---|---|
 | 2026-10-03 | e9858f30 等 3 个修复 commit | 全绿（run 37113503242） |
 | 2026-10-17 | 6081587d（歌词 Node 门禁 + CI 挂载） | Android 因 verify_bridge 旧文件失败（修复漏推送） |
 | 2026-10-17 | 0f08f468（补推 RSA flaky 修复） | **全绿**（run 39018118711）：analyze/test/双端构建全过 |
+| 2026-10-17 | 2645f7f0（task-1 文档 + test 转正） | **全绿**（run 39020468647）：首个无 continue-on-error 的 run，test 成为硬门禁 |
 
 ## 6. PixelPlayer 学习归档
 
